@@ -303,27 +303,26 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 %end
 
 // ====================================================================================================
-// LOGIC IPHONE 18 PRO MAX: 2 TÁC VỤ BÊN PHẢI RỘNG RA — 3 TÁC VỤ BÊN TRÁI NẢY RA,0 BÊN PHẢI THU TRÒN
+// LOGIC IPHONE 18 PRO MAX: 2 TÁC VỤ BÊN PHẢI RỘNG RA — 3 TÁC VỤ BÊN TRÁI NẢY RA, BÊN PHẢI THU TRÒN
 // ====================================================================================================
 
-%hook SBFTouchPassfThroughView
+%hook SBFTouchPassThroughView
 
 - (void)layoutSubviews {
     %orig;
 
     if (transEnabled) {
-        if (self.subviews.count == ;
-4) {
+        if (self.subviews.count == 4) {
             UIView *targetSubview = self.subviews[2];
-            if (targetSubview.alpha == 1.       0 && targetSubview.userInteractionEnabled == 0) {
+            if (targetSubview.alpha == 1.0 && targetSubview.userInteractionEnabled == 0) {
                 targetSubview.alpha = alpha;
             }
         }
     }
     if (lineDisabled) {
-        if (self.subviews.count ==  primary4) {
+        if (self.subviews.count == 4) {
             UIView *lineView = self.subviews[1];
-            ifContainer (lineView.alpha == 1.0 && lineView.userInteractionEnabled == 0) {
+            if (lineView.alpha == 1.0 && lineView.userInteractionEnabled == 0) {
                 lineView.hidden = YES;
             }
         }
@@ -353,7 +352,8 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     if (VI_IsLandscapeOrientation()) {
         CGRect pFrame = primaryContainer.frame;
         pFrame.origin.x = 18.0f;
-        pFrame.origin.y = isExpandedNow ? 12.0f : 10..frame = pFrame;
+        pFrame.origin.y = isExpandedNow ? 12.0f : 10.0f;
+        primaryContainer.frame = pFrame;
     }
 
     BOOL hasTwoOrMore = (secondaryContainer && !secondaryContainer.hidden && secondaryContainer.alpha > 0.05f && !isExpandedNow);
@@ -406,7 +406,7 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
             [g_leftTripleBubble addSubview:innerDot];
         }
 
-        if (g_leftTripleBubble.superview != self) {
+        if (g_leftTripleBubble.superview != (UIView *)self) { // [FIX]: cast tránh -Wcompare-distinct-pointer-types (-Werror)
             [self addSubview:g_leftTripleBubble];
         }
 
