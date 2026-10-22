@@ -718,17 +718,13 @@ void preferencesChanged(){
     }
 }
 
-// ===== Đảo hai hình tròn kiểu iPhone 18 Pro (máy không có tai thỏ). Bật bằng islandEnabled. Chưa kiểm chứng trên máy. =====
-
-static UIWindow *g_win = nil;
+// ===== Đảo kiểu iPhone 18 Pro: tai trái/phải theo hoạt động. Chưa kiểm chứng trên máy. =====
 static UIView *g_left = nil, *g_right = nil, *g_pill = nil;
 static UILabel *g_label = nil, *g_leftIcon = nil, *g_rightIcon = nil;
-
-
-static const CGFloat kD = 37.0;      // đường kính hình tròn và chiều cao viên thuốc
-static const CGFloat kGap = 120.0;   // khoảng trống ở giữa (vùng camera)
-static const CGFloat kTop = 9.0;
-static const CGFloat kExpandedW = 300.0;
+static int g_appCount = 0;          // số app đang dùng (cập nhật qua Darwin notification)
+static BOOL g_musicOn = NO;         // có app nghe nhạc nền
+static BOOL g_prevMusicOn = NO;
+static const CGFloat kD = 37.0, kGap = 120.0, kTop = 9.0, kExpandedW = 300.0;
 
 static void IslandEnsure(void) {
     if (!g_isSpringBoard || !g_islandReady) return;
@@ -737,14 +733,14 @@ static void IslandEnsure(void) {
     g_win = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, s.size.width, 60)];
     g_win.windowLevel = UIWindowLevelStatusBar + 10;
     g_win.backgroundColor = UIColor.clearColor;
-    g_win.userInteractionEnabled = NO;   // không chặn cảm ứng bên dưới
+    g_win.userInteractionEnabled = NO;
     g_win.rootViewController = [UIViewController new];
+    g_win.hidden = NO;
     UIView *root = g_win.rootViewController.view;
     root.backgroundColor = UIColor.clearColor;
-
     CGFloat cx = s.size.width / 2;
-    g_left = [[UIView alloc] initWithFrame:CGRectMake(cx - kGap / 2 - kD, kTop, kD, kD)];
-    g_right = [[UIView alloc] initWithFrame:CGRectMake(cx + kGap / 2, kTop, kD, kD)];
+    g_left = [[UIView alloc] initWithFrame:CGRectMake(cx, kTop, kD, kD)];
+    g_right = [[UIView alloc] initWithFrame:CGRectMake(cx, kTop, kD, kD)];
     for (UIView *v in @[g_left, g_right]) {
         v.backgroundColor = UIColor.blackColor;
         v.layer.cornerRadius = kD / 2;
@@ -757,11 +753,9 @@ static void IslandEnsure(void) {
         l.textAlignment = NSTextAlignmentCenter;
         l.font = [UIFont systemFontOfSize:15 weight:UIFontWeightBold];
         l.textColor = UIColor.whiteColor;
-        l.adjustsFontSizeToFitWidth = YES;
     }
     [g_left addSubview:g_leftIcon];
     [g_right addSubview:g_rightIcon];
-
     g_pill = [[UIView alloc] initWithFrame:CGRectMake(cx - kD / 2, kTop, kD, kD)];
     g_pill.backgroundColor = UIColor.blackColor;
     g_pill.layer.cornerRadius = kD / 2;
@@ -776,25 +770,47 @@ static void IslandEnsure(void) {
     [g_pill addSubview:g_label];
 }
 
-// Trạng thái gọn: hai hình tròn đen tách ra hai bên camera.
-static void IslandShowCompact(NSString *leftText, NSString *rightText) {
+// Một tai bật ra từ điểm giữa rồi nở về vị trí đích (lò xo); tắt thì co lại về giữa.
+static void IslandPopView(UIView *v, CGRect target, CGRect center, BOOL show, NSTimeInterval delay) {
+    if (show && v.alpha < 0.5) v.frame = center;
+    [UIView animateWithDuration:0.5 delay:delay usingSpringWithDamping:0.62 initialSpringVelocity:0.8
+                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
+        v.frame = show ? target : center;
+        v.alpha = show ? 1.0 : 0.0;
+    } completion:nil];
+}
+
+static void IslandRefreshCompact(void) {
     if (!g_isSpringBoard || !g_islandReady) return;
     IslandEnsure();
     CGRect s = [UIScreen mainScreen].bounds;
     CGFloat cx = s.size.width / 2;
-    g_leftIcon.text = leftText;
-    g_rightIcon.text = rightText;
-    [UIView animateWithDuration:0.5 delay:0 usingSpringWithDamping:0.7 initialSpringVelocity:0.6
-                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
-        g_left.frame = CGRectMake(cx - kGap / 2 - kD, kTop, kD, kD);
-        g_right.frame = CGRectMake(cx + kGap / 2, kTop, kD, kD);
-        g_left.alpha = 1.0; g_right.alpha = 1.0;
-        g_pill.alpha = 0.0;
-        g_label.alpha = 0.0;
-    } completion:nil];
+    CGRect leftFrame = CGRectMake(cx - kGap / 2 - kD, kTop, kD, kD);
+    CGRect rightFrame = CGRectMake(cx + kGap / 2, kTop, kD, kD);
+    CGRect center = CGRectMake(cx - kD / 2, kTop, kD, kD);
+    g_leftIcon.text = @"♪";
+    g_rightIcon.text = @"●";
+    g_pill.alpha = 0.0;
+    g_label.alpha = 0.0;
+    BOOL wantLeft = g_musicOn;
+    BOOL wantRight = g_appCount >= 2;
+    // Nhạc vừa bật: đảo hút vào giữa trước rồi mới tách tai trái
+    if (wantLeft && !g_prevMusicOn) {
+        [UIView animateWithDuration:0.18 animations:^{
+            g_left.frame = center;
+            g_right.frame = center;
+        } completion:^(BOOL f) {
+            IslandPopView(g_left, leftFrame, center, YES, 0);
+            IslandPopView(g_right, rightFrame, center, wantRight, 0.05);
+        }];
+    } else {
+        IslandPopView(g_left, leftFrame, center, wantLeft, 0);
+        IslandPopView(g_right, rightFrame, center, wantRight, 0.05);
+    }
+    g_prevMusicOn = wantLeft;
 }
 
-// Trạng thái mở rộng: hai hình tròn hợp lại thành viên thuốc dài.
+// Mở rộng thành viên thuốc có nội dung (dùng cho sự kiện như sạc, thử)
 static void IslandShowExpanded(NSString *text) {
     if (!g_isSpringBoard || !g_islandReady) return;
     IslandEnsure();
@@ -803,8 +819,6 @@ static void IslandShowExpanded(NSString *text) {
     g_label.text = text;
     [UIView animateWithDuration:0.55 delay:0 usingSpringWithDamping:0.72 initialSpringVelocity:0.6
                         options:UIViewAnimationOptionAllowUserInteraction animations:^{
-        g_left.frame = CGRectMake(cx, kTop, 0, kD);
-        g_right.frame = CGRectMake(cx, kTop, 0, kD);
         g_left.alpha = 0.0; g_right.alpha = 0.0;
         g_pill.frame = CGRectMake(cx - kExpandedW / 2, kTop, kExpandedW, kD);
         g_pill.layer.cornerRadius = kD / 2;
@@ -819,20 +833,20 @@ static void IslandHide(void) {
     IslandEnsure();
     CGRect s = [UIScreen mainScreen].bounds;
     CGFloat cx = s.size.width / 2;
+    CGRect center = CGRectMake(cx - kD / 2, kTop, kD, kD);
     [UIView animateWithDuration:0.4 animations:^{
-        g_left.frame = CGRectMake(cx - kGap / 2, kTop, 0, kD);
-        g_right.frame = CGRectMake(cx + kGap / 2, kTop, 0, kD);
+        g_left.frame = center; g_right.frame = center;
         g_left.alpha = 0.0; g_right.alpha = 0.0;
         g_pill.alpha = 0.0; g_label.alpha = 0.0;
     }];
 }
 
-// Sự kiện: mở rộng 2,6 giây rồi trở về trạng thái gọn.
+// Sự kiện mở rộng 2,6 giây rồi quay lại trạng thái tai hiện tại
 static void IslandFlash(NSString *expandedText, NSString *leftText, NSString *rightText) {
     if (!islandEnabled || !g_isSpringBoard || !g_islandReady) return;
     IslandShowExpanded(expandedText);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        IslandShowCompact(leftText, rightText);
+        IslandRefreshCompact();
     });
 }
 
@@ -847,13 +861,27 @@ static void IslandFlash(NSString *expandedText, NSString *leftText, NSString *ri
 }
 %end
 
+// Darwin notification: app mở/đóng, nhạc bật/tắt (gọi từ bên ngoài, ví dụ notifyutil -p ...)
+static void IslandAppAdd(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
+    dispatch_async(dispatch_get_main_queue(), ^{ g_appCount++; if (islandEnabled) IslandRefreshCompact(); });
+}
+static void IslandAppRemove(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
+    dispatch_async(dispatch_get_main_queue(), ^{ if (g_appCount > 0) g_appCount--; if (islandEnabled) IslandRefreshCompact(); });
+}
+static void IslandMusicOn(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
+    dispatch_async(dispatch_get_main_queue(), ^{ g_musicOn = YES; if (islandEnabled) IslandRefreshCompact(); });
+}
+static void IslandMusicOff(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
+    dispatch_async(dispatch_get_main_queue(), ^{ g_musicOn = NO; if (islandEnabled) IslandRefreshCompact(); });
+}
+
 static void IslandTestCallback(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
     IslandFlash(@"Dynamic Island", @"●", @"✓");
 }
 
 
 static void IslandApplyState(void) {
-    if (islandEnabled) { IslandShowCompact(@"●", @"✓"); } else { IslandHide(); }
+    if (islandEnabled) { IslandRefreshCompact(); } else { IslandHide(); }
 }
 
 %ctor{
@@ -862,6 +890,14 @@ static void IslandApplyState(void) {
         g_isSpringBoard = YES;
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandTestCallback,
             CFSTR("com.taojb.island.test"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandAppAdd,
+            CFSTR("com.taojb.island.app.add"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandAppRemove,
+            CFSTR("com.taojb.island.app.remove"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandMusicOn,
+            CFSTR("com.taojb.island.music.on"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandMusicOff,
+            CFSTR("com.taojb.island.music.off"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             g_islandReady = YES;
             IslandApplyState();
