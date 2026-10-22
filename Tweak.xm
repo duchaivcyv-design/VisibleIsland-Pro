@@ -406,21 +406,21 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
             innerDot.backgroundColor = [UIColor systemGreenColor];
             innerDot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
             innerDot.tag = 1902;
-            }
-
- [g_leftTripleBubble addSubview:innerDot];
+            [g_leftTripleBubble addSubview:innerDot];
         }
 
         if (g_leftTripleBubble.superview != self) {
-            [self addSubview:g_left       TripleBubble];
+            [self addSubview:g_leftTripleBubble];
         }
 
         g_leftTripleBubble.layer.cornerRadius = bubbleSize / 2.0f;
-        UIView * CGRectdot = [g_leftTripleBubble viewWithTag:1902];
+        UIView *dot = [g_leftTripleBubble viewWithTag:1902];
         if (dot) {
-            dot.frame = CGRectMake(6.0f, 6.0f, bubble targetSize - 12.0f, bubbleSize - 12.0f);
+            dot.frame = CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f);
             dot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
-       LeftRect = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 7.5f, mainRect.origin.y, bubbleSize, bubbleSize);
+        }
+
+        CGRect targetLeftRect = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 7.5f, mainRect.origin.y, bubbleSize, bubbleSize);
 
         if (g_leftTripleBubble.alpha < 0.5f) {
             g_leftTripleBubble.frame = CGRectMake(CGRectGetMinX(mainRect) + 6.0f, mainRect.origin.y, bubbleSize, bubbleSize);
@@ -487,7 +487,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 }
 
 %end
-
 // Chặn rèm đen (_SBSystemApertureMagiciansCurtainView)
 %hook _SBSystemApertureMagiciansCurtainView
 
