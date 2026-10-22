@@ -74,7 +74,7 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================
-//  METABALL "2 GIỌT NƯỚC" — cầu lỏng căng giữa island & bubble
+//  TRẠNG THÁI
 // ============================================================
 
 static UIView *g_leftTripleBubble = nil;
@@ -83,8 +83,8 @@ static CAShapeLayer *g_metaballBridgeLayer = nil;
 static CGRect s_vi_mainRect;
 static BOOL s_vi_bubbleVisible = NO;
 static BOOL s_vi_bubbleManuallyDismissed = NO;
+static BOOL s_vi_targetIsFullPop = NO;
 static NSTimeInterval s_lastActivityCheck = 0;
-static int s_consecutiveThreeChecks = 0;
 
 static inline BOOL VI_IsLandscapeOrientation(void) {
     UIInterfaceOrientation orient = UIInterfaceOrientationPortrait;
@@ -98,63 +98,10 @@ static inline BOOL VI_IsLandscapeOrientation(void) {
     return ([UIScreen mainScreen].bounds.size.width > [UIScreen mainScreen].bounds.size.height);
 }
 
-static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContainer, UIView *secondaryContainer) {
-    if (!primaryContainer || !secondaryContainer) return NO;
-    if (secondaryContainer.hidden || secondaryContainer.alpha < 0.05f || secondaryContainer.bounds.size.width < 10.0f) {
-        return NO;
-    }
-    int activeTaskCount = 2;
+// ============================================================
+//  METABALL "2 GIỌT NƯỚC" — cầu lỏng căng giữa island & giọt trái
+// ============================================================
 
-    BOOL isScreenRecording = [UIScreen mainScreen].isCaptured;
-    if (isScreenRecording) activeTaskCount++;
-
-    Class mediaCls = objc_getClass("SBMediaController");
-    if (mediaCls && [mediaCls respondsToSelector:@selector(sharedInstance)]) {
-        SBMediaController *mc = [mediaCls sharedInstance];
-        if (mc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
-            activeTaskCount++;
-        }
-    }
-
-    for (UIView *sub in primaryContainer.superview.subviews) {
-        if (sub == primaryContainer || sub == secondaryContainer) continue;
-        NSString *cls = NSStringFromClass([sub class]);
-        if ([cls containsString:@"SystemApertureContainerView"] && !sub.hidden && sub.alpha > 0.1f && sub.bounds.size.width > 10) {
-            activeTaskCount++;
-        }
-    }
-
-    // Nguồn 4 — chỉ đếm window overlay nhỏ (PiP/call), bỏ qua window fullscreen
-    if (@available(iOS 13.0, *)) {
-        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-            UIWindowScene *windowScene = (UIWindowScene *)scene;
-            #pragma clang diagnostic push
-            #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-            for (UIWindow *w in windowScene.windows) {
-            #pragma clang diagnostic pop
-                if (w.hidden || w.alpha < 0.8) continue;
-                NSString *winCls = NSStringFromClass([w class]);
-                if ([winCls containsString:@"SystemAperture"] || [winCls containsString:@"BannerWindow"]) continue;
-                if (w.frame.size.width > 100 && w.frame.size.height > 100) continue;
-                if (w.rootViewController) {
-                    activeTaskCount++;
-                    break;
-                }
-            }
-        }
-    }
-
-    if (activeTaskCount >= 3) {
-        s_consecutiveThreeChecks++;
-        if (s_consecutiveThreeChecks >= 3) return YES;
-    } else {
-        s_consecutiveThreeChecks = 0;
-    }
-    return NO;
-}
-
-// ==== METABALL: vẽ "cầu nước" giữa 2 giọt ====
 static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat progress) {
     if (!g_metaballBridgeLayer) {
         g_metaballBridgeLayer = [CAShapeLayer layer];
@@ -174,7 +121,7 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
     CGFloat rightX = CGRectGetMinX(mainRect);
     CGFloat distance = rightX - leftX;
     if (distance < 1.5f) {
-        // 2 giọt đã chạm → cầu kín hoàn toàn
+        // 2 giọt chạm nhau → cầu kín hoàn toàn
         UIBezierPath *seal = [UIBezierPath bezierPathWithRect:
             CGRectMake(leftX, midY - mainH * 0.5f, rightX - leftX + 1.0f, mainH)];
         g_metaballBridgeLayer.path = seal.CGPath;
@@ -182,10 +129,10 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
         return;
     }
 
+    // Cầu nước: dày ở 2 đầu (giọt bám mặt), thắt eo giữa; càng gần càng dày
     CGFloat nearness = 1.0f - fabs(progress - 0.5f) * 2.0f;
     CGFloat neck = mainH * (0.18f + 0.42f * nearness);
     CGFloat endR = mainH * 0.46f;
-
     CGFloat cx = (leftX + rightX) * 0.5f;
 
     UIBezierPath *path = [UIBezierPath bezierPath];
@@ -214,7 +161,7 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
 
 @interface VI_SpringDriver : NSObject
 @property (nonatomic, strong) CADisplayLink *link;
-@property (nonatomic, assign) CGFloat position;
+@property (nonatomic, assign) CGFloat position;   // 0 = ẩn, 1 = hiện
 @property (nonatomic, assign) CGFloat velocity;
 @property (nonatomic, assign) CGFloat target;
 @property (nonatomic, strong) NSTimer *failSafe;
@@ -225,18 +172,20 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
 
 static VI_SpringDriver *g_springDriver = nil;
 
-static const CGFloat kSpringDamping   = 0.62f;
-static const CGFloat kSpringStiffness = 190.0f;
+static const CGFloat kSpringDamping   = 0.62f;  // thấp hơn = nảy nhiều hơn
+static const CGFloat kSpringStiffness = 190.0f; // cao hơn = nhanh hơn
 static const CGFloat kSpringMass      = 1.0f;
 
 @implementation VI_SpringDriver
 - (CGRect)currentTargetRectFor:(CGFloat)t {
     CGFloat bubbleSize = s_vi_mainRect.size.height;
     if (bubbleSize < 28.0f) bubbleSize = 35.0f;
+    // Khoảng cách: 8pt khi split thường (nhạc), 14pt khi nổ full (3 hoạt động)
+    CGFloat gap = s_vi_targetIsFullPop ? 14.0f : 8.0f;
     CGRect centerRect = CGRectMake(CGRectGetMidX(s_vi_mainRect) - bubbleSize / 2.0f,
                                    CGRectGetMidY(s_vi_mainRect) - bubbleSize / 2.0f,
                                    bubbleSize, bubbleSize);
-    CGRect leftRect = CGRectMake(CGRectGetMinX(s_vi_mainRect) - bubbleSize - 8.0f,
+    CGRect leftRect = CGRectMake(CGRectGetMinX(s_vi_mainRect) - bubbleSize - gap,
                                  s_vi_mainRect.origin.y,
                                  bubbleSize, bubbleSize);
     return CGRectMake(centerRect.origin.x + (leftRect.origin.x - centerRect.origin.x) * t,
@@ -245,9 +194,10 @@ static const CGFloat kSpringMass      = 1.0f;
                       centerRect.size.height + (leftRect.size.height - centerRect.size.height) * t);
 }
 - (void)tick:(CADisplayLink *)dl {
-    CGFloat dt = dl.targetTimestamp - dl.timestamp;
+    CGFloat dt = dl.targetTimestamp - dl.timestamp;  // dt thật → mượt 60 & 120Hz
     if (dt <= 0 || dt > 0.05f) dt = 1.0f / 60.0f;
 
+    // F = -k(x - target) - c*v → spring nảy thật
     CGFloat displacement = self.position - self.target;
     CGFloat c = 2.0f * kSpringDamping * sqrtf(kSpringStiffness);
     CGFloat force = -kSpringStiffness * displacement - c * self.velocity;
@@ -259,6 +209,7 @@ static const CGFloat kSpringMass      = 1.0f;
     if (g_leftTripleBubble) {
         g_leftTripleBubble.hidden = NO;
         g_leftTripleBubble.frame = cur;
+        // Squash & stretch theo tốc độ — chất lỏng thật
         CGFloat stretch = 1.0 + fmin(0.10, fabs(self.velocity) * 0.035);
         g_leftTripleBubble.transform = CGAffineTransformMakeScale((CGFloat)stretch, (CGFloat)(2.0 - stretch));
         g_leftTripleBubble.alpha = (CGFloat)fmax(0.0, fmin(1.0, t * 1.5));
@@ -295,6 +246,7 @@ static const CGFloat kSpringMass      = 1.0f;
         [self.link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
     self.link.paused = NO;
+    // Fail-safe chống kẹt animation → không đơ, không treo SpringBoard
     [self.failSafe invalidate];
     self.failSafe = [NSTimer timerWithTimeInterval:2.5f target:self selector:@selector(forceSettle) userInfo:nil repeats:NO];
     [[NSRunLoop mainRunLoop] addTimer:self.failSafe forMode:NSRunLoopCommonModes];
@@ -329,6 +281,7 @@ static void VI_SetBubbleTarget(CGFloat target, CGFloat velocityKick) {
     if (!g_leftTripleBubble || !s_vi_bubbleVisible) return;
     s_vi_bubbleManuallyDismissed = YES;
     s_vi_bubbleVisible = NO;
+    // Bóp giọt nước lại rồi hút về island
     [UIView animateWithDuration:0.10 animations:^{
         g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.85f, 1.10f);
     } completion:^(BOOL finished) {
@@ -391,32 +344,38 @@ static void VI_PrepareBubbleIfNeeded(CGRect mainRect, UIView *containerView) {
     }
 }
 
-static void VI_ShowBubble(CGRect mainRect, UIView *containerView) {
+static void VI_ShowBubble(CGRect mainRect, UIView *containerView, BOOL fullPop) {
     if (!g_leftTripleBubble) VI_PrepareBubbleIfNeeded(mainRect, containerView);
     if (!g_leftTripleBubble) return;
     if (s_vi_bubbleManuallyDismissed) return;
 
-    s_vi_mainRect = mainRect;
-    s_vi_bubbleVisible = YES;
-    g_leftTripleBubble.hidden = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        s_vi_mainRect = mainRect;
+        s_vi_bubbleVisible = YES;
+        s_vi_targetIsFullPop = fullPop;
+        g_leftTripleBubble.hidden = NO;
 
-    UIView *dot = [g_leftTripleBubble viewWithTag:1902];
-    if (dot) dot.hidden = NO;
+        UIView *dot = [g_leftTripleBubble viewWithTag:1902];
+        if (dot) dot.hidden = NO;
 
-    if (g_springDriver.position < 0.05f) {
-        g_springDriver.position = 0.0f;
-        g_springDriver.velocity = 0.0f;
-        g_leftTripleBubble.alpha = 0.0f;
-    }
-    VI_SetBubbleTarget(1.0f, 4.0f);
+        if (g_springDriver.position < 0.05f) {
+            g_springDriver.position = 0.0f;
+            g_springDriver.velocity = 0.0f;
+            g_leftTripleBubble.alpha = 0.0f;
+        }
+        // Nổ full (3 hoạt động) kick mạnh, split (nhạc) kick vừa phải — cả hai đều nảy
+        VI_SetBubbleTarget(1.0f, fullPop ? 5.0f : 3.0f);
+    });
 }
 
 static void VI_HideBubble(void) {
     if (!g_leftTripleBubble || !s_vi_bubbleVisible) return;
     s_vi_bubbleVisible = NO;
-    UIView *dot = [g_leftTripleBubble viewWithTag:1902];
-    if (dot) dot.hidden = YES;
-    VI_SetBubbleTarget(0.0f, -1.5f);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *dot = [g_leftTripleBubble viewWithTag:1902];
+        if (dot) dot.hidden = YES;
+        VI_SetBubbleTarget(0.0f, -1.5f);
+    });
 }
 
 // ============================================================
@@ -443,6 +402,63 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     if ([deviceModel isEqualToString:@"iPhone14,5"] || [deviceModel isEqualToString:@"iPhone14,2"] || [deviceModel isEqualToString:@"iPhone14,7"]) return 40.0;
     if ([deviceModel isEqualToString:@"iPhone14,3"]) return 42.0;
     return 35.0;
+}
+
+// ============================================================
+//  ĐẾM HOẠT ĐỘNG ĐANG CHẠY (app thứ 3: nhạc, quay màn hình, PiP...)
+// ============================================================
+
+static int s_activityCountSnapshot = 0;
+
+static inline int VI_CountConcurrentActivities(UIView *primaryContainer, UIView *secondaryContainer) {
+    if (!primaryContainer || !secondaryContainer) return 0;
+    if (secondaryContainer.hidden || secondaryContainer.alpha < 0.05f || secondaryContainer.bounds.size.width < 10.0f) {
+        return 0;
+    }
+    int activeTaskCount = 2;
+
+    // Nguồn 1: Quay màn hình
+    if ([UIScreen mainScreen].isCaptured) activeTaskCount++;
+
+    // Nguồn 2: Nhạc / phát lại (app thứ 3 như Spotify, YouTube...)
+    Class mediaCls = objc_getClass("SBMediaController");
+    if (mediaCls && [mediaCls respondsToSelector:@selector(sharedInstance)]) {
+        SBMediaController *mc = [mediaCls sharedInstance];
+        if (mc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
+            activeTaskCount++;
+        }
+    }
+
+    // Nguồn 3: Container phụ khác
+    for (UIView *sub in primaryContainer.superview.subviews) {
+        if (sub == primaryContainer || sub == secondaryContainer) continue;
+        NSString *cls = NSStringFromClass([sub class]);
+        if ([cls containsString:@"SystemApertureContainerView"] && !sub.hidden && sub.alpha > 0.1f && sub.bounds.size.width > 10) {
+            activeTaskCount++;
+        }
+    }
+
+    // Nguồn 4: window overlay nhỏ (PiP/call) — bỏ window fullscreen app thường (chống false positive)
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            for (UIWindow *w in windowScene.windows) {
+            #pragma clang diagnostic pop
+                if (w.hidden || w.alpha < 0.8) continue;
+                NSString *winCls = NSStringFromClass([w class]);
+                if ([winCls containsString:@"SystemAperture"] || [winCls containsString:@"BannerWindow"]) continue;
+                if (w.frame.size.width > 100 && w.frame.size.height > 100) continue;
+                if (w.rootViewController) {
+                    activeTaskCount++;
+                    break;
+                }
+            }
+        }
+    }
+    return activeTaskCount;
 }
 
 // ============================================================
@@ -596,73 +612,75 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         pFrame.origin.x = 18.0f;
         pFrame.origin.y = isExpandedNow ? 12.0f : 10.0f;
         primaryContainer.frame = pFrame;
+        if (s_vi_bubbleVisible) VI_HideBubble();
         return;
     }
 
-    BOOL hasTwo = (secondaryContainer && !secondaryContainer.hidden && secondaryContainer.alpha > 0.05f && !isExpandedNow);
-    BOOL hasThree = (!isExpandedNow) && VI_HasThreeOrMoreConcurrentActivities(primaryContainer, secondaryContainer);
+    int activityCount = isExpandedNow ? 0 : VI_CountConcurrentActivities(primaryContainer, secondaryContainer);
+    BOOL hasTwo   = (activityCount >= 2);
+    BOOL hasThree = (activityCount >= 3);
+    s_activityCountSnapshot = activityCount;
 
-    if (!hasThree && s_vi_bubbleManuallyDismissed && now - s_lastActivityCheck > 0.8f) {
+    if (!hasTwo && s_vi_bubbleManuallyDismissed && now - s_lastActivityCheck > 0.8f) {
         s_vi_bubbleManuallyDismissed = NO;
     }
     s_lastActivityCheck = now;
 
-    // ==== 2 hoạt động: pill bên phải ====
-    if (hasTwo && !hasThree) {
-        if (@available(iOS 13.0, *)) {
-            secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
-        }
-        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.7 initialSpringVelocity:2 options:0 animations:^{
-            CGRect f = secondaryContainer.frame;
-            f.origin.x = CGRectGetMaxX(mainRect) + 7.0f;
-            secondaryContainer.frame = f;
-        } completion:nil];
-        secondaryContainer.layer.cornerRadius = mainRect.size.height / 2.0f;
+    CGFloat bubbleSize = mainRect.size.height;
+    if (bubbleSize < 28.0f) bubbleSize = 35.0f;
 
-        if (s_vi_bubbleVisible) {
-            VI_HideBubble();
-        }
-    }
-
-    // ==== 3 hoạt động: phải co TRÒN + trái NỔY RA bằng hiệu ứng giọt nước ====
-    if (hasThree && !s_vi_bubbleManuallyDismissed) {
+    if (hasTwo) {
         if (@available(iOS 13.0, *)) {
             secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
         }
 
-        CGFloat bubbleSize = mainRect.size.height;
-        if (bubbleSize < 28.0f) bubbleSize = 35.0f;
-
+        // ==== PHẢI: co TRÒN bằng spring — KHÔNG bị đè, giữ nguyên vị trí riêng ====
         CGSize curSize = secondaryContainer.frame.size;
         if (fabs(curSize.width - bubbleSize) > 0.5 || fabs(curSize.height - bubbleSize) > 0.5) {
-            [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.65 initialSpringVelocity:3 options:0 animations:^{
-                CGRect rightRect = secondaryContainer.frame;
-                CGFloat centerY = CGRectGetMidY(rightRect);
-                rightRect.size.width = bubbleSize;
-                rightRect.size.height = bubbleSize;
-                rightRect.origin.x = CGRectGetMaxX(mainRect) + 7.0f;
-                rightRect.origin.y = centerY - bubbleSize / 2.0f;
-                secondaryContainer.frame = rightRect;
-            } completion:nil];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.62 initialSpringVelocity:3.5 options:0 animations:^{
+                    CGRect rightRect = secondaryContainer.frame;
+                    CGFloat centerY = CGRectGetMidY(rightRect);
+                    rightRect.size.width = bubbleSize;
+                    rightRect.size.height = bubbleSize;
+                    rightRect.origin.x = CGRectGetMaxX(mainRect) + 7.0f;
+                    rightRect.origin.y = centerY - bubbleSize / 2.0f;
+                    secondaryContainer.frame = rightRect;
+                    secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
+                } completion:nil];
+            });
         }
         secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
 
+        // ==== TRÁI: giọt nước NỔY RA từ island — spring + metaball dính ====
         if (!s_vi_bubbleVisible) {
-            VI_ShowBubble(mainRect, self);
+            VI_ShowBubble(mainRect, self, hasThree);
         } else {
             s_vi_mainRect = mainRect;
         }
     }
-
-    // ==== Mất 3 hoạt động → giọt nước hút về island ====
-    if (!hasThree && s_vi_bubbleVisible && !s_vi_bubbleManuallyDismissed) {
-        VI_HideBubble();
-    }
-
-    // ==== Dọn cầu metaball khi không còn hoạt động ====
-    if (!hasThree && !s_vi_bubbleVisible && !hasTwo && g_metaballBridgeLayer) {
-        g_metaballBridgeLayer.path = NULL;
-        g_metaballBridgeLayer.opacity = 0.0f;
+    else {
+        // ==== Mất hoạt động → giọt trái HÚT VỀ island, phải giãn lại pill ====
+        if (s_vi_bubbleVisible && !s_vi_bubbleManuallyDismissed) {
+            VI_HideBubble();
+        }
+        if (secondaryContainer && !secondaryContainer.hidden) {
+            CGSize curSize = secondaryContainer.frame.size;
+            if (fabs(curSize.width - mainRect.size.height) > 0.5) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.7 initialSpringVelocity:2 options:0 animations:^{
+                        CGRect f = secondaryContainer.frame;
+                        f.origin.x = CGRectGetMaxX(mainRect) + 7.0f;
+                        secondaryContainer.frame = f;
+                        secondaryContainer.layer.cornerRadius = mainRect.size.height / 2.0f;
+                    } completion:nil];
+                });
+            }
+        }
+        if (g_metaballBridgeLayer) {
+            g_metaballBridgeLayer.path = NULL;
+            g_metaballBridgeLayer.opacity = 0.0f;
+        }
     }
 }
 %end
