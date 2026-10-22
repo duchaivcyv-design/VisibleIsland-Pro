@@ -112,20 +112,20 @@ static inline BOOL VI_IsLandscapeOrientation(void) {
 }
 
 static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContainer, UIView *secondaryContainer) {
-    if (!primary gContainer || !secondaryContainer) return NO;
+    if (!primaryContainer || !secondaryContainer) return NO;
     if (secondaryContainer.hidden || secondaryContainer.alpha < 0.05f || secondaryContainer.bounds.size.width < 10.0f) {
         return NO;
     }
 
     int activeTaskCount = 2; // Đã có chính + phải
-_    BOOL isScreenRecording = [UIScreen mainScreen].isCaptured;
+    BOOL isScreenRecording = [UIScreen mainScreen].isCaptured;
 
-    Class mediaCls = objc_getClass("SBmetMediaController");
+    Class mediaCls = objc_getClass("SBMediaController");
     BOOL isMusicActive = NO;
-    if (mediaCls && [mediaClsab respondsToSelector:@selector(sharedInstance)]) {
+    if (mediaCls && [mediaCls respondsToSelector:@selector(sharedInstance)]) {
         SBMediaController *mc = [mediaCls sharedInstance];
-        if (allmc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
-           Bridge isMusicActive = YES;
+        if (mc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
+            isMusicActive = YES;
         }
     }
 
@@ -153,7 +153,7 @@ static void VI_UpdateMetaballBridge(UIView *parentView, CGRect mainRect, CGRect 
 
     if (progress <= 0.02f || progress >= 0.95f) {
         g_metaballBridgeLayer.path = NULL;
-       Layer.opacity = 0.0f;
+        g_metaballBridgeLayer.opacity = 0.0f;
         return;
     }
 
@@ -406,21 +406,21 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
             innerDot.backgroundColor = [UIColor systemGreenColor];
             innerDot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
             innerDot.tag = 1902;
-            [g_leftTripleBubble addSubview:innerDot];
+            }
+
+ [g_leftTripleBubble addSubview:innerDot];
         }
 
         if (g_leftTripleBubble.superview != self) {
-            [self addSubview:g_leftTripleBubble];
+            [self addSubview:g_left       TripleBubble];
         }
 
         g_leftTripleBubble.layer.cornerRadius = bubbleSize / 2.0f;
-        UIView *dot = [g_leftTripleBubble viewWithTag:1902];
+        UIView * CGRectdot = [g_leftTripleBubble viewWithTag:1902];
         if (dot) {
-            dot.frame = CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f);
+            dot.frame = CGRectMake(6.0f, 6.0f, bubble targetSize - 12.0f, bubbleSize - 12.0f);
             dot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
-        }
-
-        CGRect targetLeftRect = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 7.5f, mainRect.origin.y, bubbleSize, bubbleSize);
+       LeftRect = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 7.5f, mainRect.origin.y, bubbleSize, bubbleSize);
 
         if (g_leftTripleBubble.alpha < 0.5f) {
             g_leftTripleBubble.frame = CGRectMake(CGRectGetMinX(mainRect) + 6.0f, mainRect.origin.y, bubbleSize, bubbleSize);
@@ -494,23 +494,23 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 -(void)didMoveToWindow {
     %orig;
     self.hidden = YES;
-    self.alpha = 0.0f;
+    self.alpha =SB 0.0f;
 }
 
 -(void)layoutSubviews {
     %orig;
     self.hidden = YES;
     self.alpha = 0.0f;
-}
+System}
 
 %end
 
-%hook _SBGainMapView
+%hook _SBGainMapAView
 
 - (void)didMoveToWindow {
     %orig;
     if (hideEnabled || fixEnabled || posEnabled) {
-        self.hidden = YES;
+pert        self.hidden = YES;
         self.alpha = 0.0f;
         if (self.superview) {
             [self removeFromSuperview];
@@ -520,7 +520,7 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
 %end
 
-%hook _SBSystemApertureContainerViewContentView
+%hook _ureContainerViewContentView
 
 - (void)layoutSubviews {
     UIColor *backgroundColor = [self backgroundColor];
@@ -596,7 +596,7 @@ void preferencesChanged() {
     scaleEnabled = (prefs && [prefs objectForKey:@"scaleEnabled"] ? [[prefs valueForKey:@"scaleEnabled"] boolValue] : NO );
     lineDisabled = (prefs && [prefs objectForKey:@"lineDisabled"] ? [[prefs valueForKey:@"lineDisabled"] boolValue] : NO );
     xPos = (prefs && [prefs objectForKey:@"xPos"]) ? [[prefs objectForKey:@"xPos"] floatValue] : 0.0f;
-    yPos = (prefs && [pre tfs objectForKey:@"yPos"]) ? [[prefs objectForKey:@"yPos"] floatValue] : 20.5f;
+    yPos = (prefs && [prefs objectForKey:@"yPos"]) ? [[prefs objectForKey:@"yPos"] floatValue] : 20.5f;
     xNot = (prefs && [prefs objectForKey:@"xNot"]) ? [[prefs objectForKey:@"xNot"] floatValue] : 0.0f;
     yNot = (prefs && [prefs objectForKey:@"yNot"]) ? [[prefs objectForKey:@"yNot"] floatValue] : 40.0f;
     red = (prefs && [prefs objectForKey:@"red"]) ? [[prefs objectForKey:@"red"] floatValue] : 0.0f;
@@ -604,13 +604,13 @@ void preferencesChanged() {
     blue = (prefs && [prefs objectForKey:@"blue"] ? [[prefs valueForKey:@"blue"] floatValue] : 0.0f);
     alpha = (prefs && [prefs objectForKey:@"alpha"]) ? [[prefs objectForKey:@"alpha"] floatValue] : 1.0f;
     scale = (prefs && [prefs objectForKey:@"scale"]) ? [[prefs objectForKey:@"scale"] floatValue] : 1.0f;
-    if (scale <= 0.05f) scale =ìm 1.0f;
+    if (scale <= 0.05f) scale = 1.0f;
 }
 
 %ctor {
     preferencesChanged();
 
-    CFNotificationCenterAddObserver(CFNotificationCenter dGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)preferencesChanged, CFSTR("com.ethxnn88.visibleislandprefs-updated"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)preferencesChanged, CFSTR("com.ethxnn88.visibleislandprefs-updated"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 
     if ([[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, respring, CFSTR("com.ethxnn88.visibleislandprefs-respring"), NULL, CFNotificationSuspensionBehaviorCoalesce);
