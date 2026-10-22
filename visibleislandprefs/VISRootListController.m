@@ -135,7 +135,15 @@
 
     [alert addAction:okAction];
 
-    UIViewController *rootViewController = [[[UIApplication sharedApplication] keyWindow] rootViewController];
+    UIWindow *keyWin = nil;
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+        for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+            if (w.isKeyWindow) { keyWin = w; break; }
+        }
+        if (keyWin) break;
+    }
+    UIViewController *rootViewController = keyWin.rootViewController;
     [rootViewController presentViewController:alert animated:YES completion:nil];
 }
 
