@@ -43,14 +43,22 @@ static BOOL lineDisabled;
 - (BOOL)isSilentMode;
 @end
 
-@interface SBSystemApertureWindow : UIWindow @end
-@interface _SBSystemApertureMagiciansCurtainView : UIView @end
-@interface SBBannerWindow : UIWindow @end
-@interface _SBGainMapView : UIView @end
-@interface _SBSystemApertureContainerViewContentView : UIView @end
-@interface SBFTouchPassThroughView : UIView @end
-@interface SBSystemApertureViewController : UIViewController @end
-@interface SBRingerIndicatorView : UIView @end
+@interface SBSystemApertureWindow : UIWindow 
+@end
+@interface _SBSystemApertureMagiciansCurtainView : UIView 
+@end
+@interface SBBannerWindow : UIWindow 
+@end
+@interface _SBGainMapView : UIView 
+@end
+@interface _SBSystemApertureContainerViewContentView : UIView 
+@end
+@interface SBFTouchPassThroughView : UIView 
+@end
+@interface SBSystemApertureViewController : UIViewController
+@end
+@interface SBRingerIndicatorView : UIView 
+@end
 
 @interface Model : NSObject
 + (NSString *)deviceModel;
