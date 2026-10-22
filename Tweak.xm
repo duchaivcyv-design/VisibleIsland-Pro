@@ -515,16 +515,21 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 %end
 
 %hook SBFTouchPassThroughView
+
 - (void)layoutSubviews {
     %orig;
     
     if (transEnabled && self.subviews.count >= 3) {
         UIView *sub = self.subviews[2];
-        if (sub.alpha == 1.0 && sub.userInteractionEnabled == 0) sub.alpha = alpha;
+        if (sub.alpha == 1.0 && sub.userInteractionEnabled == 0) {
+            sub.alpha = alpha;
+        }
     }
     if (lineDisabled && self.subviews.count >= 2) {
         UIView *line = self.subviews[1];
-        if (line.alpha == 1.0 && line.userInteractionEnabled == 0) line.hidden = YES;
+        if (line.alpha == 1.0 && line.userInteractionEnabled == 0) {
+            line.hidden = YES;
+        }
     }
 
     UIView *primaryContainer = nil;
@@ -532,8 +537,11 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     for (UIView *sub in self.subviews) {
         NSString *cls = NSStringFromClass([sub class]);
         if ([cls containsString:@"SystemApertureContainerView"]) {
-            if (!primaryContainer) primaryContainer = sub;
-            else if (!secondaryContainer) secondaryContainer = sub;
+            if (!primaryContainer) {
+                primaryContainer = sub;
+            } else if (!secondaryContainer) {
+                secondaryContainer = sub;
+            }
         }
     }
     if (!primaryContainer) return;
@@ -553,28 +561,29 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     BOOL hasTwo = (secondaryContainer && !secondaryContainer.hidden && secondaryContainer.alpha > 0.05f && !isExpandedNow);
     BOOL hasThree = (!isExpandedNow) && VI_HasThreeOrMoreConcurrentActivities(primaryContainer, secondaryContainer);
     
-    // Reset "đã ẩn bằng tay" khi không còn 3 hoạt động trong 0.5s
     if (!hasThree && s_vi_bubbleManuallyDismissed && now - s_lastActivityCheck > 0.5f) {
         s_vi_bubbleManuallyDismissed = NO;
     }
     s_lastActivityCheck = now;
     
-    // ==== 2 hoạt động: chỉ chỉnh bên phải ====
     if (hasTwo && !hasThree) {
-        if (@available(iOS 13.0, *)) secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        if (@available(iOS 13.0, *)) {
+            secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        }
         CGRect rFrame = secondaryContainer.frame;
         rFrame.origin.x = CGRectGetMaxX(mainRect) + 7.0f;
         secondaryContainer.frame = rFrame;
         
-        // Ẩn bên trái nếu đang hiện
-        if (s_vi_bubbleVisible) VI_HideBubble();
+        if (s_vi_bubbleVisible) {
+            VI_HideBubble();
+        }
     }
     
-    // ==== 3 hoạt động: NỔI BÊN TRÁI — NỔI RA TỪ ISLAND ====
     if (hasThree && !s_vi_bubbleManuallyDismissed) {
-        if (@available(iOS 13.0, *)) secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        if (@available(iOS 13.0, *)) {
+            secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        }
         
-        // Bên phải co thành vòng tròn
         CGFloat bubbleSize = mainRect.size.height;
         if (bubbleSize < 28.0f) bubbleSize = 35.0f;
         CGRect rightRect = secondaryContainer.frame;
@@ -585,29 +594,27 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         secondaryContainer.frame = rightRect;
         secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
         
-        // Bên trái NỔI RA từ trong island — chỉ gọi 1 lần khi chuyển trạng thái
         if (!s_vi_bubbleVisible && !s_vi_bubbleAnimating) {
             VI_ShowBubble(mainRect, self);
         } else if (s_vi_bubbleVisible && !s_vi_bubbleAnimating) {
-            // Đã hiện rồi → chỉ cập nhật vị trí theo island
             s_vi_mainRect = mainRect;
             CGFloat leftX = CGRectGetMinX(mainRect) - bubbleSize - 7.5f;
             if (g_leftTripleBubble) {
-                CGRect current = g_leftTripleBubble.frame;
                 CGPoint center = g_leftTripleBubble.center;
-                if (fabs(center.x - (leftX + bubbleSize/2.0f)) > 1.0f ||
-                    fabs(center.y - (mainRect.origin.y + bubbleSize/2.0f)) > 1.0f) {
-                    g_leftTripleBubble.center = CGPointMake(leftX + bubbleSize/2.0f, mainRect.origin.y + bubbleSize/2.0f);
+                CGPoint targetCenter = CGPointMake(leftX + bubbleSize/2.0f, mainRect.origin.y + bubbleSize/2.0f);
+                if (fabs(center.x - targetCenter.x) > 1.0f ||
+                    fabs(center.y - targetCenter.y) > 1.0f) {
+                    g_leftTripleBubble.center = targetCenter;
                 }
             }
         }
     }
     
-    // ==== Mất 3 hoạt động → HÚT VỀ ====
     if (!hasThree && s_vi_bubbleVisible && !s_vi_bubbleAnimating && !s_vi_bubbleManuallyDismissed) {
         VI_HideBubble();
     }
 }
+
 %end
 
 %hook _SBSystemApertureMagiciansCurtainView
