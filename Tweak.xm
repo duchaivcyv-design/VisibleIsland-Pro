@@ -719,6 +719,7 @@ void preferencesChanged(){
 }
 
 // ===== Đảo kiểu iPhone 18 Pro: tai trái/phải theo hoạt động. Chưa kiểm chứng trên máy. =====
+static UIWindow *g_win = nil;
 static UIView *g_left = nil, *g_right = nil, *g_pill = nil;
 static UILabel *g_label = nil, *g_leftIcon = nil, *g_rightIcon = nil;
 static int g_appCount = 0;          // số app đang dùng (cập nhật qua Darwin notification)
