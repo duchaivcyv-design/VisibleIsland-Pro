@@ -1,4 +1,4 @@
-TARGET = iphone:clang:15.0
+TARGET := iphone:clang:16.5:15.0
 INSTALL_TARGET_PROCESSES = backboardd aggregated
 
 THEOS_DEVICE_IP=localhost
