@@ -5,9 +5,9 @@
 #import <objc/runtime.h>
 
 // ====================================================================================================
-// VISIBLE ISLAND — CHUẨN MÔ PHỎNG IPHONE 18 PRO MAX 100% THẬT
-// - 2 Tác vụ: Bên phải bung rộng hơn một chút, bên trái hoàn toàn không có gì;
-// - 3 Tác vụ: Giọt nCước bên trái nảy bung ra, đồng thời bên phảiGFloat thu gọn lại thành hình tròn (circle bubble).
+// VISIBLE ISLAND — CHUẨN MÔ PHỎNG IPHONE 18 PRO MAX (100 phan tram that)
+// - 2 Tác vụ: Bên phải bung rộng hơn một chút, bên trái hoàn toàn không có gì.
+// - 3 Tác vụ: Giọt nước bên trái nảy bung ra, đồng thời bên phải thu gọn lại thành hình tròn (circle bubble).
 // ====================================================================================================
 
 CGFloat red = 0.0;
@@ -67,7 +67,12 @@ static BOOL lineDisabled;
 @end
 
 @interface Model : NSObject
-+ (NSString *)deviceModel (NSString *)deviceModel {
++ (NSString *)deviceModel;
+@end
+
+@implementation Model
+
++ (NSString *)deviceModel {
     size_t size;
     sysctlbyname("hw.machine", NULL, &size, NULL, 0);
     char *machine = (char *)malloc(size);
@@ -106,26 +111,24 @@ static inline BOOL VI_IsLandscapeOrientation(void) {
     return (bounds.size.width > bounds.size.height);
 }
 
-// Kiểm tra xem hệ thống có đang chạy đúng từ 3 tác vụ trở lên hay không
 static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContainer, UIView *secondaryContainer) {
-    if (!primaryContainer || !secondaryContainer) return NO;
+    if (!primary gContainer || !secondaryContainer) return NO;
     if (secondaryContainer.hidden || secondaryContainer.alpha < 0.05f || secondaryContainer.bounds.size.width < 10.0f) {
         return NO;
     }
 
     int activeTaskCount = 2; // Đã có chính + phải
-    BOOL isScreenRecording = [UIScreen mainScreen].isCaptured;
+_    BOOL isScreenRecording = [UIScreen mainScreen].isCaptured;
 
-    Class mediaCls = objc_getClass("SBMediaController");
+    Class mediaCls = objc_getClass("SBmetMediaController");
     BOOL isMusicActive = NO;
-    if (mediaCls && [mediaCls respondsToSelector:@selector(sharedInstance)]) {
+    if (mediaCls && [mediaClsab respondsToSelector:@selector(sharedInstance)]) {
         SBMediaController *mc = [mediaCls sharedInstance];
-        if (mc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
-            isMusicActive = YES;
+        if (allmc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
+           Bridge isMusicActive = YES;
         }
     }
 
-    // Quét thêm các container phụ khác trong SystemAperture
     for (UIView *sub in primaryContainer.superview.subviews) {
         NSString *cls = NSStringFromClass([sub class]);
         if ([cls containsString:@"SystemApertureContainerView"] && sub != primaryContainer && sub != secondaryContainer && !sub.hidden && sub.alpha > 0.1f) {
@@ -150,7 +153,7 @@ static void VI_UpdateMetaballBridge(UIView *parentView, CGRect mainRect, CGRect 
 
     if (progress <= 0.02f || progress >= 0.95f) {
         g_metaballBridgeLayer.path = NULL;
-        g_metaballBridgeLayer.opacity = 0.0f;
+       Layer.opacity = 0.0f;
         return;
     }
 
@@ -341,7 +344,9 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
     if (!primaryContainer) return;
 
-    primaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+    if (@available(iOS 13.0, *)) {
+        primaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+    }
     BOOL isExpandedNow = (primaryContainer.bounds.size.height > 62.0f || primaryContainer.bounds.size.width > 270.0f);
 
     if (VI_IsLandscapeOrientation()) {
@@ -356,7 +361,9 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
     // KHI CÓ 2 TÁC VỤ: Bên phải tự động mở rộng bề ngang thêm một chút cho thoáng và cân đối đúng 18 Pro Max
     if (hasTwoOrMore && !hasThreeOrMore) {
-        secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        if (@available(iOS 13.0, *)) {
+            secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        }
         CGRect rFrame = secondaryContainer.frame;
         rFrame.origin.x = CGRectGetMaxX(primaryContainer.frame) + 7.0f;
         secondaryContainer.frame = rFrame;
@@ -369,7 +376,9 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
     // KHI CÓ 3 TÁC VỤ TRỞ LÊN: Bên trái nảy giọt nước ra, bên phải tự động co thu gọn lại thành hình tròn (Circle Bubble)
     if (hasThreeOrMore) {
-        secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        if (@available(iOS 13.0, *)) {
+            secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        }
         CGRect mainRect = primaryContainer.frame;
         CGFloat bubbleSize = mainRect.size.height;
         if (bubbleSize < 28.0f) bubbleSize = 35.0f;
@@ -387,7 +396,9 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         if (!g_leftTripleBubble) {
             g_leftTripleBubble = [[UIView alloc] initWithFrame:CGRectMake(CGRectGetMinX(mainRect), mainRect.origin.y, bubbleSize, bubbleSize)];
             g_leftTripleBubble.backgroundColor = [UIColor blackColor];
-            g_leftTripleBubble.layer.cornerCurve = kCACornerCurveContinuous;
+            if (@available(iOS 13.0, *)) {
+                g_leftTripleBubble.layer.cornerCurve = kCACornerCurveContinuous;
+            }
             g_leftTripleBubble.clipsToBounds = YES;
             g_leftTripleBubble.alpha = 0.0f;
 
@@ -585,7 +596,7 @@ void preferencesChanged() {
     scaleEnabled = (prefs && [prefs objectForKey:@"scaleEnabled"] ? [[prefs valueForKey:@"scaleEnabled"] boolValue] : NO );
     lineDisabled = (prefs && [prefs objectForKey:@"lineDisabled"] ? [[prefs valueForKey:@"lineDisabled"] boolValue] : NO );
     xPos = (prefs && [prefs objectForKey:@"xPos"]) ? [[prefs objectForKey:@"xPos"] floatValue] : 0.0f;
-    yPos = (prefs && [prefs objectForKey:@"yPos"]) ? [[prefs objectForKey:@"yPos"] floatValue] : 20.5f;
+    yPos = (prefs && [pre tfs objectForKey:@"yPos"]) ? [[prefs objectForKey:@"yPos"] floatValue] : 20.5f;
     xNot = (prefs && [prefs objectForKey:@"xNot"]) ? [[prefs objectForKey:@"xNot"] floatValue] : 0.0f;
     yNot = (prefs && [prefs objectForKey:@"yNot"]) ? [[prefs objectForKey:@"yNot"] floatValue] : 40.0f;
     red = (prefs && [prefs objectForKey:@"red"]) ? [[prefs objectForKey:@"red"] floatValue] : 0.0f;
@@ -593,13 +604,13 @@ void preferencesChanged() {
     blue = (prefs && [prefs objectForKey:@"blue"] ? [[prefs valueForKey:@"blue"] floatValue] : 0.0f);
     alpha = (prefs && [prefs objectForKey:@"alpha"]) ? [[prefs objectForKey:@"alpha"] floatValue] : 1.0f;
     scale = (prefs && [prefs objectForKey:@"scale"]) ? [[prefs objectForKey:@"scale"] floatValue] : 1.0f;
-    if (scale <= 0.05f) scale = 1.0f;
+    if (scale <= 0.05f) scale =ìm 1.0f;
 }
 
 %ctor {
     preferencesChanged();
 
-    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)preferencesChanged, CFSTR("com.ethxnn88.visibleislandprefs-updated"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenter dGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)preferencesChanged, CFSTR("com.ethxnn88.visibleislandprefs-updated"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 
     if ([[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, respring, CFSTR("com.ethxnn88.visibleislandprefs-respring"), NULL, CFNotificationSuspensionBehaviorCoalesce);
