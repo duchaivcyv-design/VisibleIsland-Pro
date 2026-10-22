@@ -16,6 +16,8 @@ CGFloat yNot = 40;
 
 static BOOL fixEnabled;
 static BOOL islandEnabled;
+static BOOL g_isSpringBoard = NO;
+static BOOL g_islandReady = NO;   // true sau khi SpringBoard khởi tạo xong; trước đó không gọi UIKit
 static BOOL posEnabled;
 static BOOL hideEnabled;
 static BOOL notificationFix;
@@ -711,7 +713,9 @@ void preferencesChanged(){
     blue = [[prefs objectForKey:@"blue"] floatValue];
     alpha = [[prefs objectForKey:@"alpha"] floatValue];
     scale = [[prefs objectForKey:@"scale"] floatValue];
-    IslandApplyState();
+    if (g_isSpringBoard && g_islandReady) {
+        dispatch_async(dispatch_get_main_queue(), ^{ IslandApplyState(); });
+    }
 }
 
 // ===== Đảo hai hình tròn kiểu iPhone 18 Pro (máy không có tai thỏ). Bật bằng islandEnabled. Chưa kiểm chứng trên máy. =====
@@ -727,6 +731,7 @@ static const CGFloat kTop = 9.0;
 static const CGFloat kExpandedW = 300.0;
 
 static void IslandEnsure(void) {
+    if (!g_isSpringBoard || !g_islandReady) return;
     if (g_win) return;
     CGRect s = [UIScreen mainScreen].bounds;
     g_win = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, s.size.width, 60)];
@@ -773,6 +778,7 @@ static void IslandEnsure(void) {
 
 // Trạng thái gọn: hai hình tròn đen tách ra hai bên camera.
 static void IslandShowCompact(NSString *leftText, NSString *rightText) {
+    if (!g_isSpringBoard || !g_islandReady) return;
     IslandEnsure();
     CGRect s = [UIScreen mainScreen].bounds;
     CGFloat cx = s.size.width / 2;
@@ -790,6 +796,7 @@ static void IslandShowCompact(NSString *leftText, NSString *rightText) {
 
 // Trạng thái mở rộng: hai hình tròn hợp lại thành viên thuốc dài.
 static void IslandShowExpanded(NSString *text) {
+    if (!g_isSpringBoard || !g_islandReady) return;
     IslandEnsure();
     CGRect s = [UIScreen mainScreen].bounds;
     CGFloat cx = s.size.width / 2;
@@ -808,6 +815,7 @@ static void IslandShowExpanded(NSString *text) {
 }
 
 static void IslandHide(void) {
+    if (!g_isSpringBoard || !g_islandReady) return;
     IslandEnsure();
     CGRect s = [UIScreen mainScreen].bounds;
     CGFloat cx = s.size.width / 2;
@@ -821,7 +829,7 @@ static void IslandHide(void) {
 
 // Sự kiện: mở rộng 2,6 giây rồi trở về trạng thái gọn.
 static void IslandFlash(NSString *expandedText, NSString *leftText, NSString *rightText) {
-    if (!islandEnabled) return;
+    if (!islandEnabled || !g_isSpringBoard || !g_islandReady) return;
     IslandShowExpanded(expandedText);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         IslandShowCompact(leftText, rightText);
@@ -851,9 +859,11 @@ static void IslandApplyState(void) {
 %ctor{
 	preferencesChanged();
     if ([[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
+        g_isSpringBoard = YES;
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandTestCallback,
             CFSTR("com.taojb.island.test"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            g_islandReady = YES;
             IslandApplyState();
         });
     }
