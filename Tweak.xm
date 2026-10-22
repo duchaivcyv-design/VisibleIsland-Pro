@@ -33,8 +33,7 @@ static BOOL scaleEnabled;
 static BOOL lineDisabled;
 
 @interface FBSystemService : NSObject
-+(id)shared;
-Instance;
++(id)sharedInstance;
 -(void)exitAndRelaunch:(BOOL)arg1;
 @end
 
@@ -45,31 +44,30 @@ Instance;
 - (id)nowPlayingApplication;
 @end
 
-id)nowPlayingApplication;
-@end
-
 @interface SBSystemApertureWindow : UIWindow
 @end
 
-@interface _SBSystemApertureMagiciansCur@implementationtainView : UIView
+@interface _SBSystemApertureMagiciansCurtainView : UIView
 @end
 
 @interface SBBannerWindow : UIWindow
 @end
 
-@interface _SB ModelGainMapView : UIView
+@interface _SBGainMapView : UIView
 @end
 
 @interface _SBSystemApertureContainerViewContentView : UIView
 @end
 
-
-
 @interface SBFTouchPassThroughView : UIView
 @end
 
 @interface SBSystemApertureViewController : UIViewController
-@end+
+@end
+
+@interface Model : NSObject
++ (NSString *)deviceModel;
+@end
 
 @interface Model : NSObject
 + (NSString *)deviceModel (NSString *)deviceModel {
