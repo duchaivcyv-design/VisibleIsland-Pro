@@ -40,10 +40,11 @@ Instance;
 @end
 
 @interface SBMediaController : NSObject
-@end+ (instancetype)sharedInstance;
++ (instancetype)sharedInstance;
 - (BOOL)isPlaying;
 - (BOOL)isPaused;
-- (
+- (id)nowPlayingApplication;
+@end
 
 id)nowPlayingApplication;
 @end
