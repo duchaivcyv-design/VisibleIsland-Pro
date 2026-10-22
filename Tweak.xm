@@ -709,10 +709,156 @@ void preferencesChanged(){
     blue = [[prefs objectForKey:@"blue"] floatValue];
     alpha = [[prefs objectForKey:@"alpha"] floatValue];
     scale = [[prefs objectForKey:@"scale"] floatValue];
+    IslandApplyState();
+}
+
+// ===== Đảo hai hình tròn kiểu iPhone 18 Pro (máy không có tai thỏ). Bật bằng islandEnabled. Chưa kiểm chứng trên máy. =====
+
+static UIWindow *g_win = nil;
+static UIView *g_left = nil, *g_right = nil, *g_pill = nil;
+static UILabel *g_label = nil, *g_leftIcon = nil, *g_rightIcon = nil;
+
+
+static const CGFloat kD = 37.0;      // đường kính hình tròn và chiều cao viên thuốc
+static const CGFloat kGap = 120.0;   // khoảng trống ở giữa (vùng camera)
+static const CGFloat kTop = 9.0;
+static const CGFloat kExpandedW = 300.0;
+
+static void IslandEnsure(void) {
+    if (g_win) return;
+    CGRect s = [UIScreen mainScreen].bounds;
+    g_win = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, s.size.width, 60)];
+    g_win.windowLevel = UIWindowLevelStatusBar + 10;
+    g_win.backgroundColor = UIColor.clearColor;
+    g_win.userInteractionEnabled = NO;   // không chặn cảm ứng bên dưới
+    g_win.rootViewController = [UIViewController new];
+    UIView *root = g_win.rootViewController.view;
+    root.backgroundColor = UIColor.clearColor;
+
+    CGFloat cx = s.size.width / 2;
+    g_left = [[UIView alloc] initWithFrame:CGRectMake(cx - kGap / 2 - kD, kTop, kD, kD)];
+    g_right = [[UIView alloc] initWithFrame:CGRectMake(cx + kGap / 2, kTop, kD, kD)];
+    for (UIView *v in @[g_left, g_right]) {
+        v.backgroundColor = UIColor.blackColor;
+        v.layer.cornerRadius = kD / 2;
+        v.alpha = 0.0;
+        [root addSubview:v];
+    }
+    g_leftIcon = [[UILabel alloc] initWithFrame:g_left.bounds];
+    g_rightIcon = [[UILabel alloc] initWithFrame:g_right.bounds];
+    for (UILabel *l in @[g_leftIcon, g_rightIcon]) {
+        l.textAlignment = NSTextAlignmentCenter;
+        l.font = [UIFont systemFontOfSize:15 weight:UIFontWeightBold];
+        l.textColor = UIColor.whiteColor;
+        l.adjustsFontSizeToFitWidth = YES;
+    }
+    [g_left addSubview:g_leftIcon];
+    [g_right addSubview:g_rightIcon];
+
+    g_pill = [[UIView alloc] initWithFrame:CGRectMake(cx - kD / 2, kTop, kD, kD)];
+    g_pill.backgroundColor = UIColor.blackColor;
+    g_pill.layer.cornerRadius = kD / 2;
+    g_pill.clipsToBounds = YES;
+    g_pill.alpha = 0.0;
+    [root addSubview:g_pill];
+    g_label = [[UILabel alloc] initWithFrame:g_pill.bounds];
+    g_label.textColor = UIColor.whiteColor;
+    g_label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    g_label.textAlignment = NSTextAlignmentCenter;
+    g_label.alpha = 0.0;
+    [g_pill addSubview:g_label];
+}
+
+// Trạng thái gọn: hai hình tròn đen tách ra hai bên camera.
+static void IslandShowCompact(NSString *leftText, NSString *rightText) {
+    IslandEnsure();
+    CGRect s = [UIScreen mainScreen].bounds;
+    CGFloat cx = s.size.width / 2;
+    g_leftIcon.text = leftText;
+    g_rightIcon.text = rightText;
+    [UIView animateWithDuration:0.5 delay:0 usingSpringWithDamping:0.7 initialSpringVelocity:0.6
+                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
+        g_left.frame = CGRectMake(cx - kGap / 2 - kD, kTop, kD, kD);
+        g_right.frame = CGRectMake(cx + kGap / 2, kTop, kD, kD);
+        g_left.alpha = 1.0; g_right.alpha = 1.0;
+        g_pill.alpha = 0.0;
+        g_label.alpha = 0.0;
+    } completion:nil];
+}
+
+// Trạng thái mở rộng: hai hình tròn hợp lại thành viên thuốc dài.
+static void IslandShowExpanded(NSString *text) {
+    IslandEnsure();
+    CGRect s = [UIScreen mainScreen].bounds;
+    CGFloat cx = s.size.width / 2;
+    g_label.text = text;
+    [UIView animateWithDuration:0.55 delay:0 usingSpringWithDamping:0.72 initialSpringVelocity:0.6
+                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
+        g_left.frame = CGRectMake(cx, kTop, 0, kD);
+        g_right.frame = CGRectMake(cx, kTop, 0, kD);
+        g_left.alpha = 0.0; g_right.alpha = 0.0;
+        g_pill.frame = CGRectMake(cx - kExpandedW / 2, kTop, kExpandedW, kD);
+        g_pill.layer.cornerRadius = kD / 2;
+        g_pill.alpha = 1.0;
+        g_label.frame = g_pill.bounds;
+        g_label.alpha = 1.0;
+    } completion:nil];
+}
+
+static void IslandHide(void) {
+    IslandEnsure();
+    CGRect s = [UIScreen mainScreen].bounds;
+    CGFloat cx = s.size.width / 2;
+    [UIView animateWithDuration:0.4 animations:^{
+        g_left.frame = CGRectMake(cx - kGap / 2, kTop, 0, kD);
+        g_right.frame = CGRectMake(cx + kGap / 2, kTop, 0, kD);
+        g_left.alpha = 0.0; g_right.alpha = 0.0;
+        g_pill.alpha = 0.0; g_label.alpha = 0.0;
+    }];
+}
+
+// Sự kiện: mở rộng 2,6 giây rồi trở về trạng thái gọn.
+static void IslandFlash(NSString *expandedText, NSString *leftText, NSString *rightText) {
+    if (!islandEnabled) return;
+    IslandShowExpanded(expandedText);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        IslandShowCompact(leftText, rightText);
+    });
+}
+
+%hook SBUIController
+- (void)_handleBatteryStateChange:(id)arg {
+    %orig;
+    UIDevice *d = [UIDevice currentDevice];
+    d.batteryMonitoringEnabled = YES;
+    if (d.batteryState == UIDeviceBatteryStateCharging || d.batteryState == UIDeviceBatteryStateFull) {
+        IslandFlash([NSString stringWithFormat:@"⚡ %d%%", (int)(d.batteryLevel * 100)], @"⚡", @"");
+    }
+}
+%end
+
+static void IslandTestCallback(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
+    IslandFlash(@"Dynamic Island", @"●", @"✓");
+}
+
+
+static void IslandApplyState(void) {
+    if (islandEnabled) { IslandShowCompact(@"●", @"✓"); } else { IslandHide(); }
+}
+
+static void IslandTestCallback(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
+    IslandFlash(@"Dynamic Island", @"●", @"✓");
 }
 
 %ctor{
 	preferencesChanged();
+    if ([[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandTestCallback,
+            CFSTR("com.taojb.island.test"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            IslandApplyState();
+        });
+    }
 
 	CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)preferencesChanged, CFSTR("com.ethxnn88.visibleislandprefs-updated"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 
