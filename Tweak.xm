@@ -4,6 +4,7 @@
 #import <sys/sysctl.h>
 #import <objc/runtime.h>
 #import <math.h>
+#import <cmath>
 
 CGFloat red = 0.0;
 CGFloat green = 0.0;
@@ -123,8 +124,7 @@ static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContaine
         }
     }
 
-    // Nguồn 4 — đã fix false positive: chỉ đếm window overlay nhỏ (PiP/call),
-    // bỏ qua window fullscreen của app thường (nguyên nhân bubble hiện lung tung)
+    // Nguồn 4 — chỉ đếm window overlay nhỏ (PiP/call), bỏ qua window fullscreen
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
             if (![scene isKindOfClass:[UIWindowScene class]]) continue;
@@ -136,7 +136,7 @@ static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContaine
                 if (w.hidden || w.alpha < 0.8) continue;
                 NSString *winCls = NSStringFromClass([w class]);
                 if ([winCls containsString:@"SystemAperture"] || [winCls containsString:@"BannerWindow"]) continue;
-                if (w.frame.size.width > 100 && w.frame.size.height > 100) continue; // window fullscreen → bỏ
+                if (w.frame.size.width > 100 && w.frame.size.height > 100) continue;
                 if (w.rootViewController) {
                     activeTaskCount++;
                     break;
@@ -154,7 +154,7 @@ static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContaine
     return NO;
 }
 
-// ==== METABALL: vẽ "cầu nước" giữa 2 giọt — phình ở gốc, thắt giữa, dính mượt ====
+// ==== METABALL: vẽ "cầu nước" giữa 2 giọt ====
 static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat progress) {
     if (!g_metaballBridgeLayer) {
         g_metaballBridgeLayer = [CAShapeLayer layer];
@@ -170,11 +170,11 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
 
     CGFloat midY = CGRectGetMidY(mainRect);
     CGFloat mainH = mainRect.size.height;
-    CGFloat leftX  = CGRectGetMaxX(bubbleRect);   // mép phải giọt trái
-    CGFloat rightX = CGRectGetMinX(mainRect);     // mép trái island
+    CGFloat leftX  = CGRectGetMaxX(bubbleRect);
+    CGFloat rightX = CGRectGetMinX(mainRect);
     CGFloat distance = rightX - leftX;
     if (distance < 1.5f) {
-        // 2 giọt đã chạm → cầu kín hoàn toàn, không khe hở
+        // 2 giọt đã chạm → cầu kín hoàn toàn
         UIBezierPath *seal = [UIBezierPath bezierPathWithRect:
             CGRectMake(leftX, midY - mainH * 0.5f, rightX - leftX + 1.0f, mainH)];
         g_metaballBridgeLayer.path = seal.CGPath;
@@ -182,16 +182,13 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
         return;
     }
 
-    // Cầu nước: dày ở 2 đầu (phình như giọt nước bám mặt), thắt ở giữa.
-    // progress gần 0.5 → gần nhất → cầu dày nhất (đang hút dính vào nhau)
-    CGFloat nearness = 1.0f - fabs(progress - 0.5f) * 2.0f;   // 1 = gần nhất
-    CGFloat neck = mainH * (0.18f + 0.42f * nearness);        // bán kính giữa
-    CGFloat endR = mainH * 0.46f;                             // bán kính 2 đầu
+    CGFloat nearness = 1.0f - fabs(progress - 0.5f) * 2.0f;
+    CGFloat neck = mainH * (0.18f + 0.42f * nearness);
+    CGFloat endR = mainH * 0.46f;
 
     CGFloat cx = (leftX + rightX) * 0.5f;
 
     UIBezierPath *path = [UIBezierPath bezierPath];
-    // Nửa trên: từ đỉnh giọt trái, cong phình ra rồi vào eo giữa, ra đỉnh island
     [path moveToPoint:CGPointMake(leftX, midY - endR)];
     [path addCurveToPoint:CGPointMake(cx, midY - neck)
             controlPoint1:CGPointMake(leftX + distance * 0.30f, midY - endR * 0.95f)
@@ -199,7 +196,6 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
     [path addCurveToPoint:CGPointMake(rightX, midY - endR)
             controlPoint1:CGPointMake(cx + distance * 0.28f,   midY - neck * 1.25f)
             controlPoint2:CGPointMake(rightX - distance * 0.30f, midY - endR * 0.95f)];
-    // Nửa dưới: đối xứng
     [path addCurveToPoint:CGPointMake(cx, midY + neck)
             controlPoint1:CGPointMake(rightX - distance * 0.30f, midY + endR * 0.95f)
             controlPoint2:CGPointMake(cx + distance * 0.28f,   midY + neck * 1.25f)];
@@ -209,7 +205,7 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
     [path closePath];
 
     g_metaballBridgeLayer.path = path.CGPath;
-    g_metaballBridgeLayer.opacity = fminf(1.0f, progress * 3.0f);
+    g_metaballBridgeLayer.opacity = fminf(1.0f, (float)(progress * 3.0f));
 }
 
 // ============================================================
@@ -218,7 +214,7 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
 
 @interface VI_SpringDriver : NSObject
 @property (nonatomic, strong) CADisplayLink *link;
-@property (nonatomic, assign) CGFloat position;   // 0 = ẩn, 1 = hiện
+@property (nonatomic, assign) CGFloat position;
 @property (nonatomic, assign) CGFloat velocity;
 @property (nonatomic, assign) CGFloat target;
 @property (nonatomic, strong) NSTimer *failSafe;
@@ -229,8 +225,8 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
 
 static VI_SpringDriver *g_springDriver = nil;
 
-static const CGFloat kSpringDamping   = 0.62f;  // thấp hơn = nảy nhiều hơn (iPhone ~0.6)
-static const CGFloat kSpringStiffness = 190.0f; // cao hơn = nhanh hơn
+static const CGFloat kSpringDamping   = 0.62f;
+static const CGFloat kSpringStiffness = 190.0f;
 static const CGFloat kSpringMass      = 1.0f;
 
 @implementation VI_SpringDriver
@@ -249,29 +245,27 @@ static const CGFloat kSpringMass      = 1.0f;
                       centerRect.size.height + (leftRect.size.height - centerRect.size.height) * t);
 }
 - (void)tick:(CADisplayLink *)dl {
-    CGFloat dt = dl.targetTimestamp - dl.timestamp;  // dt thật → mượt 60 & 120Hz
+    CGFloat dt = dl.targetTimestamp - dl.timestamp;
     if (dt <= 0 || dt > 0.05f) dt = 1.0f / 60.0f;
 
-    // F = -k(x - target) - c*v  → spring nảy thật
     CGFloat displacement = self.position - self.target;
     CGFloat c = 2.0f * kSpringDamping * sqrtf(kSpringStiffness);
     CGFloat force = -kSpringStiffness * displacement - c * self.velocity;
     self.velocity += force * dt / kSpringMass;
     self.position += self.velocity * dt;
 
-    CGFloat t = fmaxf(0.0f, fminf(1.0f, self.position));
+    CGFloat t = fmax(0.0, fmin(1.0, self.position));
     CGRect cur = [self currentTargetRectFor:t];
     if (g_leftTripleBubble) {
         g_leftTripleBubble.hidden = NO;
         g_leftTripleBubble.frame = cur;
-        // giọt phình nhẹ khi đang bay (squash & stretch nhẹ như chất lỏng)
-        CGFloat stretch = 1.0f + fminf(0.10f, fabsf(self.velocity) * 0.035f);
-        g_leftTripleBubble.transform = CGAffineTransformMakeScale(stretch, 2.0f - stretch);
-        g_leftTripleBubble.alpha = fmaxf(0.0f, fminf(1.0f, t * 1.5f));
+        CGFloat stretch = 1.0 + fmin(0.10, fabs(self.velocity) * 0.035);
+        g_leftTripleBubble.transform = CGAffineTransformMakeScale((CGFloat)stretch, (CGFloat)(2.0 - stretch));
+        g_leftTripleBubble.alpha = (CGFloat)fmax(0.0, fmin(1.0, t * 1.5));
     }
     VI_DrawMetaballBridge(s_vi_mainRect, cur, t);
 
-    if (fabsf(self.velocity) < 0.01f && fabsf(displacement) < 0.002f) {
+    if (fabs(self.velocity) < 0.01 && fabs(displacement) < 0.002) {
         self.position = self.target;
         self.velocity = 0;
         [self tickOnce];
@@ -280,10 +274,10 @@ static const CGFloat kSpringMass      = 1.0f;
 }
 - (void)tickOnce {
     if (!g_leftTripleBubble) return;
-    CGFloat t = fmaxf(0.0f, fminf(1.0f, self.position));
+    CGFloat t = fmax(0.0, fmin(1.0, self.position));
     g_leftTripleBubble.transform = CGAffineTransformIdentity;
     g_leftTripleBubble.frame = [self currentTargetRectFor:t];
-    g_leftTripleBubble.alpha = fmaxf(0.0f, fminf(1.0f, t * 1.5f));
+    g_leftTripleBubble.alpha = (CGFloat)fmax(0.0, fmin(1.0, t * 1.5));
     if (t <= 0.001f) {
         g_leftTripleBubble.hidden = YES;
         UIView *dot = [g_leftTripleBubble viewWithTag:1902];
@@ -301,7 +295,6 @@ static const CGFloat kSpringMass      = 1.0f;
         [self.link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
     self.link.paused = NO;
-    // Fail-safe chống kẹt: 2.5s chưa ổn định → ép về target
     [self.failSafe invalidate];
     self.failSafe = [NSTimer timerWithTimeInterval:2.5f target:self selector:@selector(forceSettle) userInfo:nil repeats:NO];
     [[NSRunLoop mainRunLoop] addTimer:self.failSafe forMode:NSRunLoopCommonModes];
@@ -336,7 +329,6 @@ static void VI_SetBubbleTarget(CGFloat target, CGFloat velocityKick) {
     if (!g_leftTripleBubble || !s_vi_bubbleVisible) return;
     s_vi_bubbleManuallyDismissed = YES;
     s_vi_bubbleVisible = NO;
-    // Nhíu lại như giọt nước bị bóp, rồi hút về island
     [UIView animateWithDuration:0.10 animations:^{
         g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.85f, 1.10f);
     } completion:^(BOOL finished) {
@@ -416,7 +408,7 @@ static void VI_ShowBubble(CGRect mainRect, UIView *containerView) {
         g_springDriver.velocity = 0.0f;
         g_leftTripleBubble.alpha = 0.0f;
     }
-    VI_SetBubbleTarget(1.0f, 4.0f);   // kick mạnh → giọt nước bật ra có nảy
+    VI_SetBubbleTarget(1.0f, 4.0f);
 }
 
 static void VI_HideBubble(void) {
@@ -424,7 +416,7 @@ static void VI_HideBubble(void) {
     s_vi_bubbleVisible = NO;
     UIView *dot = [g_leftTripleBubble viewWithTag:1902];
     if (dot) dot.hidden = YES;
-    VI_SetBubbleTarget(0.0f, -1.5f);  // hút về mượt
+    VI_SetBubbleTarget(0.0f, -1.5f);
 }
 
 // ============================================================
@@ -615,13 +607,11 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     }
     s_lastActivityCheck = now;
 
-    // ==== 2 hoạt động: pill bên phải, thu gọn lại từ dạng tròn nếu trước đó là tròn ====
+    // ==== 2 hoạt động: pill bên phải ====
     if (hasTwo && !hasThree) {
         if (@available(iOS 13.0, *)) {
             secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
         }
-        CGRect rFrame = secondaryContainer.frame;
-        // giãn lại từ tròn về pill có hiệu ứng lỏng
         [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.7 initialSpringVelocity:2 options:0 animations:^{
             CGRect f = secondaryContainer.frame;
             f.origin.x = CGRectGetMaxX(mainRect) + 7.0f;
@@ -643,8 +633,8 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         CGFloat bubbleSize = mainRect.size.height;
         if (bubbleSize < 28.0f) bubbleSize = 35.0f;
 
-        // Bên phải co thành tròn đúng tỉ lệ, có spring co lại như giọt nước
-        if (!CGRectEqualToRect(secondaryContainer.frame.size, CGSizeMake(bubbleSize, bubbleSize))) {
+        CGSize curSize = secondaryContainer.frame.size;
+        if (fabs(curSize.width - bubbleSize) > 0.5 || fabs(curSize.height - bubbleSize) > 0.5) {
             [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.65 initialSpringVelocity:3 options:0 animations:^{
                 CGRect rightRect = secondaryContainer.frame;
                 CGFloat centerY = CGRectGetMidY(rightRect);
@@ -657,7 +647,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         }
         secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
 
-        // Bubble trái nổ ra khỏi island (spring + metaball)
         if (!s_vi_bubbleVisible) {
             VI_ShowBubble(mainRect, self);
         } else {
@@ -670,7 +659,7 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         VI_HideBubble();
     }
 
-    // ==== Giọt trái ẩn mà island không còn → dọn cầu metaball ====
+    // ==== Dọn cầu metaball khi không còn hoạt động ====
     if (!hasThree && !s_vi_bubbleVisible && !hasTwo && g_metaballBridgeLayer) {
         g_metaballBridgeLayer.path = NULL;
         g_metaballBridgeLayer.opacity = 0.0f;
