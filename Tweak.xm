@@ -5,15 +5,6 @@
 #import <objc/runtime.h>
 #import <math.h>
 
-// ====================================================================================================
-// VISIBLE ISLAND V4.2 — MÔ PHỎNG ĐÚNG DYNAMIC ISLAND IPHONE 18 PRO MAX
-// ✅ Nảy ra từ trong island, có cầu nối chất lỏng
-// ✅ Hút về mượt, không mất bất thường
-// ✅ Tap = hút về ngay, Long-press = giữ mở rộng
-// ✅ Phát hiện chính xác 3 hoạt động
-// ✅ Chấm xanh chỉ hiện khi bubble hiện
-// ====================================================================================================
-
 CGFloat red = 0.0;
 CGFloat green = 0.0;
 CGFloat blue = 0.0;
@@ -47,26 +38,13 @@ static BOOL lineDisabled;
 - (id)nowPlayingApplication;
 @end
 
-@interface SBSystemApertureWindow : UIWindow 
-@end
-
-@interface _SBSystemApertureMagiciansCurtainView : UIView 
-@end
-
-@interface SBBannerWindow : UIWindow 
-@end
-
-@interface _SBGainMapView : UIView 
-@end
-
-@interface _SBSystemApertureContainerViewContentView : UIView 
-@end
-
-@interface SBFTouchPassThroughView : UIView 
-@end
-
-@interface SBSystemApertureViewController : UIViewController 
-@end
+@interface SBSystemApertureWindow : UIWindow @end
+@interface _SBSystemApertureMagiciansCurtainView : UIView @end
+@interface SBBannerWindow : UIWindow @end
+@interface _SBGainMapView : UIView @end
+@interface _SBSystemApertureContainerViewContentView : UIView @end
+@interface SBFTouchPassThroughView : UIView @end
+@interface SBSystemApertureViewController : UIViewController @end
 
 @interface Model : NSObject
 + (NSString *)deviceModel;
@@ -88,16 +66,9 @@ static BOOL lineDisabled;
 }
 @end
 
-// ====================================================================================================
-// HÀM HIỆU ỨNG CHẤT LỎNG — ĐƯỢC GIỮ LẠI ĐỂ SỬ DỤNG SAU
-// ====================================================================================================
 __attribute__((unused)) static void VI_UpdateMetaballBridge(UIView *parentView, CGRect mainRect, CGRect bubbleRect, CGFloat progress) {
-    // Được sử dụng trong quá trình animation
 }
 
-// ====================================================================================================
-// TRẠNG THÁI TOÀN CỤC — QUẢN LÝ HIỆU ỨNG CHẶT CHẼ
-// ====================================================================================================
 static UIView *g_leftTripleBubble = nil;
 static CAShapeLayer *g_metaballBridgeLayer = nil;
 static CADisplayLink *g_animationLink = nil;
@@ -113,9 +84,6 @@ static BOOL s_vi_bubbleAnimating = NO;
 static BOOL s_vi_bubbleManuallyDismissed = NO;
 static NSTimeInterval s_lastActivityCheck = 0;
 
-// ====================================================================================================
-// PHÁT HIỆN HOẠT ĐỘNG — CHÍNH XÁC HƠN
-// ====================================================================================================
 static inline BOOL VI_IsLandscapeOrientation(void) {
     UIInterfaceOrientation orient = UIInterfaceOrientationPortrait;
     #pragma clang diagnostic push
@@ -130,62 +98,29 @@ static inline BOOL VI_IsLandscapeOrientation(void) {
 
 static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContainer, UIView *secondaryContainer) {
     if (!primaryContainer || !secondaryContainer) return NO;
-    
-    // Kiểm tra container phụ có thực sự hiển thị
     if (secondaryContainer.hidden || secondaryContainer.alpha < 0.05f || secondaryContainer.bounds.size.width < 10.0f) {
         return NO;
     }
-
-    int activeTaskCount = 2; // Chính + Phải = 2
-
-    // Nguồn 1: Quay màn hình
+    int activeTaskCount = 2;
     BOOL isScreenRecording = [UIScreen mainScreen].isCaptured;
     if (isScreenRecording) activeTaskCount++;
-
-    // Nguồn 2: Nhạc/Phát lại
     Class mediaCls = objc_getClass("SBMediaController");
-    BOOL isMusicActive = NO;
     if (mediaCls && [mediaCls respondsToSelector:@selector(sharedInstance)]) {
         SBMediaController *mc = [mediaCls sharedInstance];
         if (mc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
-            isMusicActive = YES;
             activeTaskCount++;
         }
     }
-
-    // Nguồn 3: Đếm thêm các container khác (thời gian, định vị, v.v...)
     for (UIView *sub in primaryContainer.superview.subviews) {
         NSString *cls = NSStringFromClass([sub class]);
         if ([cls containsString:@"SystemApertureContainerView"] && sub != primaryContainer && sub != secondaryContainer && !sub.hidden && sub.alpha > 0.1f) {
             activeTaskCount++;
         }
     }
-
-    // Nguồn 4: Kiểm tra các chỉ báo hệ thống khác
-    NSArray *topLevelWindows = nil;
-    if (@available(iOS 13.0, *)) {
-        UIWindowScene *scene = [[UIApplication sharedApplication].connectedScenes anyObject];
-        if (scene) topLevelWindows = scene.windows;
-    } else {
-        topLevelWindows = [UIApplication sharedApplication].windows;
-    }
-    
-    for (UIWindow *w in topLevelWindows) {
-        NSString *winCls = NSStringFromClass([w class]);
-        if ([winCls containsString:@"SystemApertureWindow"]) continue;
-        if (w.rootViewController && !w.isKeyWindow && w.hidden == NO && w.alpha > 0.5) {
-            // Có cửa sổ thông tin hệ thống khác đang hiện
-        }
-    }
-
     return (activeTaskCount >= 3);
 }
 
-// ====================================================================================================
-// HIỆU ỨNG CHẤT LỎNG — VẼ TỪNG KHUNG HÌNH
-// ====================================================================================================
 static CGFloat VI_EaseInOut(CGFloat t) {
-    // Hàm easing tự nhiên như chuyển động chất lỏng
     return t < 0.5 ? 2.0f * t * t : -1.0f + (4.0f - 2.0f * t) * t;
 }
 
@@ -196,27 +131,22 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
         g_metaballBridgeLayer.lineJoin = kCALineJoinRound;
         g_metaballBridgeLayer.contentsScale = [UIScreen mainScreen].scale;
     }
-
     if (progress <= 0.01f || progress >= 0.99f) {
         g_metaballBridgeLayer.path = NULL;
         g_metaballBridgeLayer.opacity = 0.0f;
         return;
     }
-
     CGFloat midY = CGRectGetMidY(mainRect);
     CGFloat mainH = mainRect.size.height;
     CGFloat neckMaxHeight = mainH * 0.35f;
     CGFloat neckHeight = neckMaxHeight * (1.0f - fabs(progress - 0.5f) * 2.0f);
-    
     CGFloat leftX = CGRectGetMaxX(bubbleRect);
     CGFloat rightX = CGRectGetMinX(mainRect);
     CGFloat distance = rightX - leftX;
-    
     if (distance < 1.0f) {
         g_metaballBridgeLayer.path = NULL;
         return;
     }
-
     UIBezierPath *path = [UIBezierPath bezierPath];
     [path moveToPoint:CGPointMake(leftX, midY - neckHeight * 0.5f)];
     [path addCurveToPoint:CGPointMake(rightX, midY - neckHeight * 0.5f)
@@ -227,54 +157,44 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
             controlPoint1:CGPointMake(rightX - distance * 0.3f, midY + neckHeight * 0.8f)
             controlPoint2:CGPointMake(leftX + distance * 0.3f, midY + neckHeight * 0.8f)];
     [path closePath];
-
     g_metaballBridgeLayer.path = path.CGPath;
     g_metaballBridgeLayer.opacity = 1.0f;
 }
 
 static void VI_AnimationLoop(void) {
     if (!s_vi_bubbleAnimating) return;
-    
-    // Tiến độ animation mượt mà
     CGFloat speed = s_vi_targetProgress > s_vi_animProgress ? 2.5f : 3.0f;
     CGFloat dt = 1.0f / 60.0f;
-    s_vi_animProgress += (s_vi_targetProgress > s_vi_animProgress ? 1.0f : -1.0f) * speed * dt;
+    if (s_vi_targetProgress > s_vi_animProgress) {
+        s_vi_animProgress += speed * dt;
+    } else {
+        s_vi_animProgress -= speed * dt;
+    }
     s_vi_animProgress = fmax(0.0f, fmin(1.0f, s_vi_animProgress));
-    
     if (fabs(s_vi_animProgress - s_vi_targetProgress) < 0.005f) {
         s_vi_animProgress = s_vi_targetProgress;
         s_vi_bubbleAnimating = NO;
-        if (s_vi_animProgress <= 0.005f) {
-            // Kết thúc ẩn → dừng displaylink
+        if (s_vi_animProgress <= 0.005f && g_animationLink) {
             [g_animationLink invalidate];
             g_animationLink = nil;
         }
     }
-    
     CGFloat t = VI_EaseInOut(s_vi_animProgress);
-    
-    // Tính vị trí hiện tại
     CGRect currentRect;
     currentRect.origin.x = s_vi_fromRect.origin.x + (s_vi_toRect.origin.x - s_vi_fromRect.origin.x) * t;
     currentRect.origin.y = s_vi_fromRect.origin.y + (s_vi_toRect.origin.y - s_vi_fromRect.origin.y) * t;
     currentRect.size.width = s_vi_fromRect.size.width + (s_vi_toRect.size.width - s_vi_fromRect.size.width) * t;
     currentRect.size.height = s_vi_fromRect.size.height + (s_vi_toRect.size.height - s_vi_fromRect.size.height) * t;
-    
-    // Cập nhật vị trí bubble
     if (g_leftTripleBubble) {
         g_leftTripleBubble.frame = currentRect;
         g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.15f + 0.85f * t, 0.15f + 0.85f * t);
         g_leftTripleBubble.alpha = 0.05f + 0.95f * t;
     }
-    
-    // Vẽ cầu nối chất lỏng
     VI_DrawMetaballBridge(s_vi_mainRect, currentRect, s_vi_animProgress);
 }
 
 static void VI_BubbleTapped(UITapGestureRecognizer *gr) {
     if (!g_leftTripleBubble || !s_vi_bubbleVisible) return;
-    
-    // Hút về khi tap
     s_vi_bubbleManuallyDismissed = YES;
     s_vi_targetProgress = 0.0f;
     s_vi_bubbleAnimating = YES;
@@ -282,8 +202,6 @@ static void VI_BubbleTapped(UITapGestureRecognizer *gr) {
         g_animationLink = [CADisplayLink displayLinkWithTarget:[NSBlockOperation blockOperationWithBlock:^{ VI_AnimationLoop(); }] selector:@selector(main)];
         [g_animationLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
-    
-    // Hiệu ứng phản hồi khi tap
     [UIView animateWithDuration:0.12 animations:^{
         g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.8f, 0.8f);
     } completion:^(BOOL finished) {
@@ -295,14 +213,11 @@ static void VI_BubbleTapped(UITapGestureRecognizer *gr) {
 
 static void VI_BubbleLongPressed(UILongPressGestureRecognizer *gr) {
     if (!g_leftTripleBubble || !s_vi_bubbleVisible) return;
-    
     if (gr.state == UIGestureRecognizerStateBegan) {
-        // Giữ = mở rộng nhẹ ra
         [UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:4 options:0 animations:^{
             g_leftTripleBubble.transform = CGAffineTransformMakeScale(1.15f, 1.15f);
         } completion:nil];
     } else if (gr.state == UIGestureRecognizerStateEnded || gr.state == UIGestureRecognizerStateCancelled) {
-        // Nhả ra = trở lại bình thường
         [UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:4 options:0 animations:^{
             g_leftTripleBubble.transform = CGAffineTransformIdentity;
         } completion:nil];
@@ -311,15 +226,11 @@ static void VI_BubbleLongPressed(UILongPressGestureRecognizer *gr) {
 
 static void VI_PrepareBubbleIfNeeded(CGRect mainRect, UIView *containerView) {
     if (g_leftTripleBubble) return;
-    
     CGFloat bubbleSize = mainRect.size.height;
     if (bubbleSize < 28.0f) bubbleSize = 35.0f;
-    
-    // Bắt đầu TẠI TRUNG TÂM ISLAND — để có hiệu ứng nảy ra từ trong ra
     CGRect startRect = CGRectMake(CGRectGetMidX(mainRect) - bubbleSize/2.0f,
                                   CGRectGetMidY(mainRect) - bubbleSize/2.0f,
                                   bubbleSize, bubbleSize);
-    
     g_leftTripleBubble = [[UIView alloc] initWithFrame:startRect];
     g_leftTripleBubble.backgroundColor = [UIColor blackColor];
     if (@available(iOS 13.0, *)) {
@@ -329,98 +240,54 @@ static void VI_PrepareBubbleIfNeeded(CGRect mainRect, UIView *containerView) {
     g_leftTripleBubble.clipsToBounds = YES;
     g_leftTripleBubble.alpha = 0.0f;
     g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.01f, 0.01f);
-    
-    // Chấm xanh — trạng thái hoạt động
     UIView *innerDot = [[UIView alloc] initWithFrame:CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f)];
     innerDot.backgroundColor = [UIColor systemGreenColor];
     innerDot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
     innerDot.tag = 1902;
-    innerDot.hidden = YES; // Ẩn cho đến khi bubble hiện hoàn toàn
+    innerDot.hidden = YES;
     [g_leftTripleBubble addSubview:innerDot];
-    
-    // Thêm gesture TAP = hút về
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(main)];
-    tap.cancelsTouchesInView = NO;
-    __weak typeof(tap) weakTap = tap;
-    tap.rac_gestureSignal = [RACDisposable disposableWithBlock:^{}]; // Sẽ gán bằng block bên dưới
-    // Thay bằng cách truyền trực tiếp
-    [g_leftTripleBubble addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(handleTap:)]];
-    
-    // Thêm vào window để nhận chạm đúng
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(vi_handleTap:)];
+    [g_leftTripleBubble addGestureRecognizer:tap];
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:nil action:@selector(vi_handleLongPress:)];
+    longPress.minimumPressDuration = 0.3;
+    [g_leftTripleBubble addGestureRecognizer:longPress];
+    g_leftTripleBubble.userInteractionEnabled = YES;
     UIWindow *targetWindow = containerView.window;
     if (targetWindow) {
         [targetWindow addSubview:g_leftTripleBubble];
         [targetWindow bringSubviewToFront:g_leftTripleBubble];
     }
-    
-    // Gán action bằng cách dùng block wrapper
-    UITapGestureRecognizer *actualTap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(__unused)];
-    actualTap.rac_gestureSignal = nil;
-    // Cách đơn giản nhất: dùng objc_setAssociatedObject với block
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        Class bubbleGestureClass = objc_allocateClassPair([UITapGestureRecognizer class], "VIBubbleTap", 0);
-        SEL actSel = @selector(handleAction:);
-        IMP actImp = imp_implementationWithBlock(^(UITapGestureRecognizer *self) { VI_BubbleTapped(self); });
-        class_addMethod(bubbleGestureClass, actSel, actImp, "v@:@");
-        objc_registerClassPair(bubbleGestureClass);
-    });
-    
-    UITapGestureRecognizer *realTap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:@selector(handleAction:)];
-    object_setClass(realTap, NSClassFromString(@"VIBubbleTap"));
-    [g_leftTripleBubble addGestureRecognizer:realTap];
-    
-    // Long press
-    static dispatch_once_t onceToken2;
-    dispatch_once(&onceToken2, ^{
-        Class longGestureClass = objc_allocateClassPair([UILongPressGestureRecognizer class], "VIBubbleLongPress", 0);
-        SEL actSel = @selector(handleAction:);
-        IMP actImp = imp_implementationWithBlock(^(UILongPressGestureRecognizer *self) { VI_BubbleLongPressed(self); });
-        class_addMethod(longGestureClass, actSel, actImp, "v@:@");
-        objc_registerClassPair(longGestureClass);
-    });
-    
-    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:nil action:@selector(handleAction:)];
-    object_setClass(longPress, NSClassFromString(@"VIBubbleLongPress"));
-    longPress.minimumPressDuration = 0.3;
-    [g_leftTripleBubble addGestureRecognizer:longPress];
-    
-    // Thêm lớp vẽ cầu nối
     if (g_metaballBridgeLayer.superlayer != containerView.layer) {
         [containerView.layer insertSublayer:g_metaballBridgeLayer atIndex:0];
     }
 }
 
+@interface UIView_VIHelper : UIView
+@end
+@implementation UIView_VIHelper
+- (void)vi_handleTap:(UITapGestureRecognizer *)gr { VI_BubbleTapped(gr); }
+- (void)vi_handleLongPress:(UILongPressGestureRecognizer *)gr { VI_BubbleLongPressed(gr); }
+@end
+
 static void VI_ShowBubble(CGRect mainRect, UIView *containerView) {
     if (!g_leftTripleBubble) {
         VI_PrepareBubbleIfNeeded(mainRect, containerView);
     }
-    
-    // Nếu đang ẩn bằng tay → không hiện lại cho đến khi mất rồi có lại 3 hoạt động mới
     if (s_vi_bubbleManuallyDismissed && s_vi_animProgress < 0.1f) return;
-    
     CGFloat bubbleSize = mainRect.size.height;
     if (bubbleSize < 28.0f) bubbleSize = 35.0f;
-    
-    // Bắt đầu từ trung tâm island → ra vị trí bên trái
     s_vi_fromRect = CGRectMake(CGRectGetMidX(mainRect) - bubbleSize/2.0f,
                                CGRectGetMidY(mainRect) - bubbleSize/2.0f,
                                bubbleSize, bubbleSize);
-    
     s_vi_toRect = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 7.5f,
                              mainRect.origin.y,
                              bubbleSize, bubbleSize);
-    
     s_vi_mainRect = mainRect;
     s_vi_targetProgress = 1.0f;
     s_vi_bubbleVisible = YES;
     s_vi_bubbleAnimating = YES;
-    
-    // Hiện chấm xanh khi bắt đầu nảy ra
     UIView *dot = [g_leftTripleBubble viewWithTag:1902];
     if (dot) dot.hidden = NO;
-    
-    // Bắt đầu vòng lặp animation
     if (!g_animationLink) {
         g_animationLink = [CADisplayLink displayLinkWithTarget:[NSBlockOperation blockOperationWithBlock:^{ VI_AnimationLoop(); }] selector:@selector(main)];
         [g_animationLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
@@ -429,15 +296,11 @@ static void VI_ShowBubble(CGRect mainRect, UIView *containerView) {
 
 static void VI_HideBubble(void) {
     if (!g_leftTripleBubble || !s_vi_bubbleVisible) return;
-    
     s_vi_targetProgress = 0.0f;
     s_vi_bubbleVisible = NO;
     s_vi_bubbleAnimating = YES;
-    
-    // Ẩn chấm xanh ngay
     UIView *dot = [g_leftTripleBubble viewWithTag:1902];
     if (dot) dot.hidden = YES;
-    
     if (!g_animationLink) {
         g_animationLink = [CADisplayLink displayLinkWithTarget:[NSBlockOperation blockOperationWithBlock:^{ VI_AnimationLoop(); }] selector:@selector(main)];
         [g_animationLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
@@ -467,10 +330,15 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
 %hook SBSystemApertureWindow
 - (void)setHidden:(BOOL)hidden {
-    if (VI_IsLandscapeOrientation()) { %orig(NO); return; }
+    if (VI_IsLandscapeOrientation()) {
+        %orig(NO);
+        return;
+    }
     %orig(hidden);
 }
-- (BOOL)_shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)o { return YES; }
+- (BOOL)_shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)o {
+    return YES;
+}
 - (void)layoutSubviews {
     %orig;
     BOOL isLandscape = VI_IsLandscapeOrientation();
@@ -481,19 +349,31 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         CGRect f = self.frame;
         f.origin.y = posEnabled ? (yPos / safeScale) : 10.0f;
         f.origin.x = posEnabled && xPos != 0 ? (xPos / safeScale) : -([UIScreen mainScreen].bounds.size.width * 0.28f);
-        self.frame = f; self.hidden = NO; self.alpha = 1.0f;
+        self.frame = f;
+        self.hidden = NO;
+        self.alpha = 1.0f;
         return;
     }
     if (scaleEnabled && fixEnabled) {
         self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
-        CGRect f = self.frame; f.origin.y = VI_DefaultDeviceYOffset(deviceModel)/safeScale; self.frame = f;
+        CGRect f = self.frame;
+        f.origin.y = VI_DefaultDeviceYOffset(deviceModel)/safeScale;
+        self.frame = f;
     } else if (scaleEnabled && posEnabled) {
         self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
-        CGRect f = self.frame; f.origin.y = yPos/safeScale; if (xPos!=0) f.origin.x = xPos/safeScale; self.frame = f;
+        CGRect f = self.frame;
+        f.origin.y = yPos/safeScale;
+        if (xPos!=0) f.origin.x = xPos/safeScale;
+        self.frame = f;
     } else if (fixEnabled) {
-        CGRect f = self.frame; f.origin.y = VI_DefaultDeviceYOffset(deviceModel); self.frame = f;
+        CGRect f = self.frame;
+        f.origin.y = VI_DefaultDeviceYOffset(deviceModel);
+        self.frame = f;
     } else if (posEnabled) {
-        CGRect f = self.frame; f.origin.y = yPos; f.origin.x = xPos; self.frame = f;
+        CGRect f = self.frame;
+        f.origin.y = yPos;
+        f.origin.x = xPos;
+        self.frame = f;
     } else if (scaleEnabled) {
         self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
     }
@@ -501,21 +381,27 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 %end
 
 %hook SBSystemApertureViewController
-- (BOOL)shouldAutorotate { return YES; }
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return UIInterfaceOrientationMaskAll;
+}
 - (void)viewDidLayoutSubviews {
     %orig;
     for (UIView *v in self.view.subviews) {
         NSString *cls = NSStringFromClass([v class]);
         if ([cls containsString:@"Curtain"] || [cls containsString:@"GainMap"]) {
-            if (fixEnabled || posEnabled || hideEnabled) { v.hidden = YES; v.alpha = 0.0f; }
+            if (fixEnabled || posEnabled || hideEnabled) {
+                v.hidden = YES;
+                v.alpha = 0.0f;
+            }
         }
     }
 }
 %end
 
 %hook SBFTouchPassThroughView
-
 - (void)layoutSubviews {
     %orig;
     
@@ -614,27 +500,37 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         VI_HideBubble();
     }
 }
-
 %end
 
 %hook _SBSystemApertureMagiciansCurtainView
-- (void)didMoveToWindow { %orig; self.hidden = YES; self.alpha = 0.0f; }
-- (void)layoutSubviews { %orig; self.hidden = YES; self.alpha = 0.0f; }
+- (void)didMoveToWindow {
+    %orig;
+    self.hidden = YES;
+    self.alpha = 0.0f;
+}
+- (void)layoutSubviews {
+    %orig;
+    self.hidden = YES;
+    self.alpha = 0.0f;
+}
 %end
 
 %hook _SBGainMapView
 - (void)didMoveToWindow {
     %orig;
     if (hideEnabled || fixEnabled || posEnabled) {
-        self.hidden = YES; self.alpha = 0.0f;
-        if (self.superview) [self removeFromSuperview];
+        self.hidden = YES;
+        self.alpha = 0.0f;
+        if (self.superview) {
+            [self removeFromSuperview];
+        }
     }
 }
 %end
 
 %hook _SBSystemApertureContainerViewContentView
 - (void)layoutSubviews {
-    UIColor *bg = self.backgroundColor;
+    UIColor *bg = [self backgroundColor];
     if (colorEnabled && !bg) {
         [self setBackgroundColor:[UIColor colorWithRed:red green:green blue:blue alpha:alpha]];
     }
@@ -646,15 +542,28 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 - (CGRect)frame {
     CGRect f = %orig;
     NSString *m = [Model deviceModel];
-    if (notificationFix) { f.origin.x = 0; f.origin.y = VI_DefaultBannerYOffset(m); }
-    else if (notEnabled) { f.origin.x = xNot; f.origin.y = yNot; }
+    if (notificationFix) {
+        f.origin.x = 0;
+        f.origin.y = VI_DefaultBannerYOffset(m);
+    } else if (notEnabled) {
+        f.origin.x = xNot;
+        f.origin.y = yNot;
+    }
     return f;
 }
 - (void)setFrame:(CGRect)frame {
     NSString *m = [Model deviceModel];
-    if (notificationFix) { frame.origin.x = 0; frame.origin.y = VI_DefaultBannerYOffset(m); %orig(frame); }
-    else if (notEnabled) { frame.origin.x = xNot; frame.origin.y = yNot; %orig(frame); }
-    else %orig(frame);
+    if (notificationFix) {
+        frame.origin.x = 0;
+        frame.origin.y = VI_DefaultBannerYOffset(m);
+        %orig(frame);
+    } else if (notEnabled) {
+        frame.origin.x = xNot;
+        frame.origin.y = yNot;
+        %orig(frame);
+    } else {
+        %orig(frame);
+    }
 }
 %end
 
