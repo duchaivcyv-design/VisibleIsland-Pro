@@ -43,22 +43,14 @@ static BOOL lineDisabled;
 - (BOOL)isSilentMode;
 @end
 
-@interface SBSystemApertureWindow : UIWindow 
-@end
-@interface _SBSystemApertureMagiciansCurtainView : UIView 
-@end
-@interface SBBannerWindow : UIWindow 
-@end
-@interface _SBGainMapView : UIView 
-@end
-@interface _SBSystemApertureContainerViewContentView : UIView 
-@end
-@interface SBFTouchPassThroughView : UIView 
-@end
-@interface SBSystemApertureViewController : UIViewController
-@end
-@interface SBRingerIndicatorView : UIView 
-@end
+@interface SBSystemApertureWindow : UIWindow @end
+@interface _SBSystemApertureMagiciansCurtainView : UIView @end
+@interface SBBannerWindow : UIWindow @end
+@interface _SBGainMapView : UIView @end
+@interface _SBSystemApertureContainerViewContentView : UIView @end
+@interface SBFTouchPassThroughView : UIView @end
+@interface SBSystemApertureViewController : UIViewController @end
+@interface SBRingerIndicatorView : UIView @end
 
 @interface Model : NSObject
 + (NSString *)deviceModel;
@@ -141,19 +133,23 @@ static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContaine
         }
     }
 
-    // Nguồn 4: Đếm các chỉ báo hệ thống đang hiện
-    UIWindowScene *activeScene = nil;
+    // Nguồn 4: Đếm các chỉ báo hệ thống đang hiện — ĐÃ SỬA lỗi kiểu dữ liệu
     if (@available(iOS 13.0, *)) {
-        activeScene = [[UIApplication sharedApplication].connectedScenes anyObject];
-    }
-    NSArray *topWindows = activeScene ? activeScene.windows : [UIApplication sharedApplication].windows;
-    for (UIWindow *w in topWindows) {
-        if (w.isKeyWindow || w.hidden || w.alpha < 0.8) continue;
-        NSString *winCls = NSStringFromClass([w class]);
-        if ([winCls containsString:@"SystemAperture"] || [winCls containsString:@"BannerWindow"]) continue;
-        if (w.rootViewController && !w.hidden) {
-            activeTaskCount++;
-            break;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            for (UIWindow *w in windowScene.windows) {
+            #pragma clang diagnostic pop
+                if (w.isKeyWindow || w.hidden || w.alpha < 0.8) continue;
+                NSString *winCls = NSStringFromClass([w class]);
+                if ([winCls containsString:@"SystemAperture"] || [winCls containsString:@"BannerWindow"]) continue;
+                if (w.rootViewController && !w.hidden) {
+                    activeTaskCount++;
+                    break;
+                }
+            }
         }
     }
 
@@ -477,7 +473,8 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         if (self.subviews.count == 0 || CGRectIsEmpty(self.frame)) return;
         self.layer.cornerRadius = 24.0f;
         self.layer.masksToBounds = YES;
-        self.layer.shadowColor = [UIColor.blackColor colorWithAlphaComponent(0.15f)].CGColor;
+        // ĐÃ SỬA lỗi cú pháp UIColor.blackColor → [UIColor blackColor]
+        self.layer.shadowColor = [[UIColor.blackColor colorWithAlphaComponent:0.15f] CGColor];
         self.layer.shadowOffset = CGSizeMake(0, 3);
         self.layer.shadowRadius = 8.0f;
         self.layer.shadowOpacity = 1.0f;
