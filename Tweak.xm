@@ -7,7 +7,6 @@
 // ====================================================================================================
 // VISIBLE ISLAND — CHUẨN MÔ PHỎNG IPHONE 18 PRO MAX 100% THẬT
 // - 2 Tác vụ: Bên phải bung rộng hơn một chút, bên trái hoàn toàn không có gì;
-.
 // - 3 Tác vụ: Giọt nCước bên trái nảy bung ra, đồng thời bên phảiGFloat thu gọn lại thành hình tròn (circle bubble).
 // ====================================================================================================
 
