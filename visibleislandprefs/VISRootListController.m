@@ -8,6 +8,18 @@
 - (NSArray *)specifiers {
 	if (!_specifiers) {
 		_specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
+		// [CHẨN ĐOÁN] Nếu không nạp được Root.plist, báo rõ thay vì màn hình trống.
+		if (_specifiers.count == 0) {
+			NSString *path = [[NSBundle bundleForClass:[self class]] pathForResource:@"Root" ofType:@"plist"];
+			NSLog(@"[VIS] Root.plist path=%@", path);
+			dispatch_async(dispatch_get_main_queue(), ^{
+				UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Không nạp được cài đặt"
+				    message:[NSString stringWithFormat:@"Không tìm thấy hoặc đọc lỗi Root.plist.\nĐường dẫn: %@", path ?: @"(không có trong bundle)"]
+				    preferredStyle:UIAlertControllerStyleAlert];
+				[a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+				[self presentViewController:a animated:YES completion:nil];
+			});
+		}
 	}
 
 	return _specifiers;
@@ -135,15 +147,7 @@
 
     [alert addAction:okAction];
 
-    UIWindow *keyWin = nil;
-    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-        for (UIWindow *w in ((UIWindowScene *)scene).windows) {
-            if (w.isKeyWindow) { keyWin = w; break; }
-        }
-        if (keyWin) break;
-    }
-    UIViewController *rootViewController = keyWin.rootViewController;
+    UIViewController *rootViewController = [[[UIApplication sharedApplication] keyWindow] rootViewController];
     [rootViewController presentViewController:alert animated:YES completion:nil];
 }
 
@@ -181,7 +185,7 @@
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
     if (section == [tableView numberOfSections] - 1) {
         return 50;
-    } if (section == [tableView numberOfSections] - 5) {
+    } else if (section == [tableView numberOfSections] - 5) {
         return 45;
     } else {
         return 0;
