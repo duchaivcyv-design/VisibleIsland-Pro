@@ -401,6 +401,11 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     }
 
     // KHI CÓ 3 TÁC VỤ TRỞ LÊN
+    // [FIX V3]: State machine — tránh layoutSubviews gọi liên tục giết animation giữa chừng (gây cứng đơ).
+    // Đồng thời đưa bubble lên window để nhận chạm thật (vì SBFTouchPassThroughView chuyển tiếp chạm, không nhận).
+    static BOOL s_vi_bubbleVisible = NO;
+    static BOOL s_vi_bubbleAnimating = NO;
+
     if (hasThreeOrMore) {
         if (@available(iOS 13.0, *)) {
             secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
@@ -417,15 +422,20 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         secondaryContainer.frame = rightCircleRect;
         secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
 
+        UIView *vi_hostView = self.window ?: (self.superview ?: self);
+        CGRect mainRectHost = [self convertRect:mainRect toView:vi_hostView];
+        CGRect targetLeftRectHost = CGRectMake(CGRectGetMinX(mainRectHost) - bubbleSize - 7.5f, mainRectHost.origin.y, bubbleSize, bubbleSize);
+        CGRect startRectHost = CGRectMake(CGRectGetMinX(mainRectHost) + 6.0f, mainRectHost.origin.y, bubbleSize, bubbleSize);
+
         if (!g_leftTripleBubble) {
-            g_leftTripleBubble = [[UIView alloc] initWithFrame:CGRectMake(CGRectGetMinX(mainRect), mainRect.origin.y, bubbleSize, bubbleSize)];
+            g_leftTripleBubble = [[UIView alloc] initWithFrame:startRectHost];
             g_leftTripleBubble.backgroundColor = [UIColor blackColor];
             if (@available(iOS 13.0, *)) {
                 g_leftTripleBubble.layer.cornerCurve = kCACornerCurveContinuous;
             }
             g_leftTripleBubble.clipsToBounds = YES;
             g_leftTripleBubble.alpha = 0.0f;
-            g_leftTripleBubble.userInteractionEnabled = YES; // [FIX V2]: bật tương tác cho bubble
+            g_leftTripleBubble.userInteractionEnabled = YES;
             UITapGestureRecognizer *vi_bubbleTap = [[UITapGestureRecognizer alloc] initWithTarget:g_leftTripleBubble action:@selector(vi_handleBubbleTap:)];
             [g_leftTripleBubble addGestureRecognizer:vi_bubbleTap];
 
@@ -436,14 +446,11 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
             [g_leftTripleBubble addSubview:innerDot];
         }
 
-        // [FIX V2]: thêm bubble vào superview (không phải self) để không bị cắt xén khi nằm bên trái ngoài bounds
-        UIView *vi_bubbleParent = self.superview ?: self;
-        if (g_leftTripleBubble.superview != vi_bubbleParent) {
+        if (g_leftTripleBubble.superview != vi_hostView) {
             [g_leftTripleBubble removeFromSuperview];
-            [vi_bubbleParent addSubview:g_leftTripleBubble];
+            [vi_hostView addSubview:g_leftTripleBubble];
         }
-        [vi_bubbleParent bringSubviewToFront:g_leftTripleBubble];
-
+        [vi_hostView bringSubviewToFront:g_leftTripleBubble];
         g_leftTripleBubble.layer.cornerRadius = bubbleSize / 2.0f;
         UIView *dot = [g_leftTripleBubble viewWithTag:1902];
         if (dot) {
@@ -451,52 +458,49 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
             dot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
         }
 
-        CGRect targetLeftRect = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 7.5f, mainRect.origin.y, bubbleSize, bubbleSize);
-
-        if (g_leftTripleBubble.alpha < 0.5f) {
-            g_leftTripleBubble.frame = CGRectMake(CGRectGetMinX(mainRect) + 6.0f, mainRect.origin.y, bubbleSize, bubbleSize);
+        if (!s_vi_bubbleVisible && !s_vi_bubbleAnimating) {
+            s_vi_bubbleAnimating = YES;
+            g_leftTripleBubble.frame = startRectHost;
             g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.4f, 0.4f);
             g_leftTripleBubble.alpha = 1.0f;
-
-            VI_UpdateMetaballBridge(self, mainRect, g_leftTripleBubble.frame, 0.3f);
-
-            [UIView animateWithDuration:0.18 animations:^{
-                VI_UpdateMetaballBridge(self, mainRect, targetLeftRect, 0.7f);
-            } completion:^(BOOL finished) {
-                VI_UpdateMetaballBridge(self, mainRect, targetLeftRect, 1.0f);
-            }];
-
-            [UIView animateWithDuration:0.52
+            [UIView animateWithDuration:0.55
                                   delay:0.0
-                 usingSpringWithDamping:0.62f
-                  initialSpringVelocity:0.9f
+                 usingSpringWithDamping:0.58f
+                  initialSpringVelocity:0.85f
                                 options:UIViewAnimationOptionCurveEaseOut | UIViewAnimationOptionAllowUserInteraction
                              animations:^{
                 g_leftTripleBubble.transform = CGAffineTransformIdentity;
-                g_leftTripleBubble.frame = targetLeftRect;
-            } completion:nil];
-        } else {
-            g_leftTripleBubble.frame = targetLeftRect;
+                g_leftTripleBubble.frame = targetLeftRectHost;
+            } completion:^(BOOL finished) {
+                s_vi_bubbleAnimating = NO;
+                s_vi_bubbleVisible = YES;
+            }];
+        } else if (!s_vi_bubbleAnimating) {
+            // ỔN ĐỊNH: chỉ đặt frame khi không đang animate — tránh giết animation giữa chừng
+            if (!CGRectEqualToRect(g_leftTripleBubble.frame, targetLeftRectHost)) {
+                g_leftTripleBubble.frame = targetLeftRectHost;
+            }
         }
     } else {
-        if (g_leftTripleBubble && g_leftTripleBubble.alpha > 0.0f) {
-            CGRect mainRect = primaryContainer.frame;
-            CGFloat bubbleSize = mainRect.size.height;
-            CGRect absorbRect = CGRectMake(CGRectGetMinX(mainRect) + 8.0f, mainRect.origin.y, bubbleSize, bubbleSize);
-
-            VI_UpdateMetaballBridge(self, mainRect, g_leftTripleBubble.frame, 0.4f);
-
-            [UIView animateWithDuration:0.35
+        if ((s_vi_bubbleVisible || (g_leftTripleBubble && g_leftTripleBubble.alpha > 0.01f)) && !s_vi_bubbleAnimating) {
+            s_vi_bubbleAnimating = YES;
+            UIView *vi_hostViewHide = g_leftTripleBubble.superview ?: (self.window ?: self);
+            CGRect mainRectHide = [self convertRect:primaryContainer.frame toView:vi_hostViewHide];
+            CGFloat bubbleSizeHide = mainRectHide.size.height;
+            if (bubbleSizeHide < 28.0f) bubbleSizeHide = 35.0f;
+            CGRect absorbRectHost = CGRectMake(CGRectGetMinX(mainRectHide) + 8.0f, mainRectHide.origin.y, bubbleSizeHide, bubbleSizeHide);
+            [UIView animateWithDuration:0.38
                                   delay:0.0
-                 usingSpringWithDamping:0.75f
-                  initialSpringVelocity:0.7f
-                                options:UIViewAnimationOptionCurveEaseInOut
+                 usingSpringWithDamping:0.72f
+                  initialSpringVelocity:0.6f
+                                options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionAllowUserInteraction
                              animations:^{
-                g_leftTripleBubble.frame = absorbRect;
+                g_leftTripleBubble.frame = absorbRectHost;
                 g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.35f, 0.35f);
                 g_leftTripleBubble.alpha = 0.0f;
             } completion:^(BOOL finished) {
-                VI_UpdateMetaballBridge(self, mainRect, absorbRect, 1.0f);
+                s_vi_bubbleAnimating = NO;
+                s_vi_bubbleVisible = NO;
             }];
         }
     }
