@@ -19,7 +19,8 @@ CGFloat scale = 1.0;
 
 CGFloat xPos =  0;
 CGFloat yPos =  20.5;
-CGFloat xNot = 0.0 yNot = 40;
+CGFloat xNot = 0.0;
+CGFloat yNot = 40;
 
 static BOOL fixEnabled;
 static BOOL islandEnabled;
@@ -63,10 +64,6 @@ static BOOL lineDisabled;
 @end
 
 @interface SBSystemApertureViewController : UIViewController
-@end
-
-@interface Model : NSObject
-+ (NSString *)deviceModel;
 @end
 
 @interface Model : NSObject
