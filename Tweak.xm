@@ -359,7 +359,7 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     BOOL hasTwoOrMore = (secondaryContainer && !secondaryContainer.hidden && secondaryContainer.alpha > 0.05f && !isExpandedNow);
     BOOL hasThreeOrMore = (!isExpandedNow) && VI_HasThreeOrMoreConcurrentActivities(primaryContainer, secondaryContainer);
 
-    // KHI CÓ 2 TÁC VỤ: Bên phải tự động mở rộng bề ngang thêm một chút cho thoáng và cân đối đúng 18 Pro Max
+    // KHI CÓ 2 TÁC VỤ
     if (hasTwoOrMore && !hasThreeOrMore) {
         if (@available(iOS 13.0, *)) {
             secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
@@ -368,13 +368,12 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         rFrame.origin.x = CGRectGetMaxX(primaryContainer.frame) + 7.0f;
         secondaryContainer.frame = rFrame;
 
-        // Ẩn giọt nước bên trái nếu có
         if (g_leftTripleBubble && g_leftTripleBubble.alpha > 0.0f) {
             g_leftTripleBubble.alpha = 0.0f;
         }
     }
 
-    // KHI CÓ 3 TÁC VỤ TRỞ LÊN: Bên trái nảy giọt nước ra, bên phải tự động co thu gọn lại thành hình tròn (Circle Bubble)
+    // KHI CÓ 3 TÁC VỤ TRỞ LÊN
     if (hasThreeOrMore) {
         if (@available(iOS 13.0, *)) {
             secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
@@ -383,7 +382,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         CGFloat bubbleSize = mainRect.size.height;
         if (bubbleSize < 28.0f) bubbleSize = 35.0f;
 
-        // Thu gọn bên phải thành hình tròn chuẩn 18 Pro Max
         CGRect rightCircleRect = secondaryContainer.frame;
         rightCircleRect.size.width = bubbleSize;
         rightCircleRect.size.height = bubbleSize;
@@ -392,7 +390,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         secondaryContainer.frame = rightCircleRect;
         secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
 
-        // Khởi tạo giọt nước thứ 3 bên trái (Left Triple Bubble)
         if (!g_leftTripleBubble) {
             g_leftTripleBubble = [[UIView alloc] initWithFrame:CGRectMake(CGRectGetMinX(mainRect), mainRect.origin.y, bubbleSize, bubbleSize)];
             g_leftTripleBubble.backgroundColor = [UIColor blackColor];
@@ -448,7 +445,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
             g_leftTripleBubble.frame = targetLeftRect;
         }
     } else {
-        // Khi không đủ 3 tác vụ: Hút giọt nước bên trái biến mất
         if (g_leftTripleBubble && g_leftTripleBubble.alpha > 0.0f) {
             CGRect mainRect = primaryContainer.frame;
             CGFloat bubbleSize = mainRect.size.height;
@@ -471,7 +467,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         }
     }
 
-    // Hiệu ứng lò xo khi bung trình phát nhạc (Expanded)
     if (isExpandedNow != g_isIslandExpanded) {
         g_isIslandExpanded = isExpandedNow;
         primaryContainer.transform = CGAffineTransformMakeScale(0.94f, 0.94f);
@@ -487,29 +482,29 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 }
 
 %end
-// Chặn rèm đen (_SBSystemApertureMagiciansCurtainView)
+
 %hook _SBSystemApertureMagiciansCurtainView
 
--(void)didMoveToWindow {
-    %orig;
-    self.hidden = YES;
-    self.alpha =SB 0.0f;
-}
-
--(void)layoutSubviews {
+- (void)didMoveToWindow {
     %orig;
     self.hidden = YES;
     self.alpha = 0.0f;
-System}
+}
+
+- (void)layoutSubviews {
+    %orig;
+    self.hidden = YES;
+    self.alpha = 0.0f;
+}
 
 %end
 
-%hook _SBGainMapAView
+%hook _SBGainMapView
 
 - (void)didMoveToWindow {
     %orig;
     if (hideEnabled || fixEnabled || posEnabled) {
-pert        self.hidden = YES;
+        self.hidden = YES;
         self.alpha = 0.0f;
         if (self.superview) {
             [self removeFromSuperview];
@@ -519,7 +514,7 @@ pert        self.hidden = YES;
 
 %end
 
-%hook _ureContainerViewContentView
+%hook _SBSystemApertureContainerViewContentView
 
 - (void)layoutSubviews {
     UIColor *backgroundColor = [self backgroundColor];
