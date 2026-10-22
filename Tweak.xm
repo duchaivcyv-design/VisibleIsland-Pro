@@ -3,6 +3,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <sys/sysctl.h>
 #import <objc/runtime.h>
+#import <math.h>               // [V4] cho fabs/pow trong liquid engine
 
 // ====================================================================================================
 // VISIBLE ISLAND — CHUẨN MÔ PHỎNG IPHONE 18 PRO MAX (100 phan tram that)
@@ -89,6 +90,8 @@ static BOOL lineDisabled;
 @end
 
 // [FIX V2]: Tương tác cho giọt nước bên trái — tap vào bubble sẽ có hiệu ứng pulse
+void VI_RequestAbsorb(void); // [V4] forward decl cho tap handler
+
 @interface UIView (VisibleIslandBubbleTap)
 - (void)vi_handleBubbleTap:(UITapGestureRecognizer *)tap;
 @end
@@ -97,6 +100,7 @@ static BOOL lineDisabled;
     @try {
         UIView *bubble = tap.view;
         if (!bubble) return;
+        VI_RequestAbsorb(); // [V4]: tap vào giọt nước → hút về Dynamic Island (tương tác thật)
         [UIView animateWithDuration:0.12 animations:^{
             bubble.transform = CGAffineTransformMakeScale(1.28f, 1.28f);
         } completion:^(BOOL finished) {
@@ -167,7 +171,7 @@ static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContaine
     return (activeTaskCount >= 3);
 }
 
-static void VI_UpdateMetaballBridge(UIView *parentView, CGRect mainRect, CGRect bubbleRect, CGFloat progress) {
+static void __attribute__((unused)) VI_UpdateMetaballBridge(UIView *parentView, CGRect mainRect, CGRect bubbleRect, CGFloat progress) {
     if (!g_metaballBridgeLayer) {
         g_metaballBridgeLayer = [CAShapeLayer layer];
         g_metaballBridgeLayer.fillColor = [UIColor blackColor].CGColor;
@@ -327,6 +331,100 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
 %end
 
+
+// ====================================================================================================
+// V4 — LIQUID METABALL ENGINE (hiệu ứng giọt nước nảy/hút thật, CADisplayLink驱动 từng frame)
+// ====================================================================================================
+static CADisplayLink *s_vi_displayLink = nil;
+static CGFloat        s_vi_progress = 0.0f;        // 0 = hút vào island, 1 = tách hoàn toàn
+static CGFloat        s_vi_targetProgress = 0.0f;
+static CGRect         s_vi_fromRect = {0};
+static CGRect         s_vi_toRect = {0};
+static CGRect         s_vi_mainRect = {0};
+static UIView        *s_vi_bubble = nil;
+static CAShapeLayer  *s_vi_bridgeLayer = nil;
+static UIView        *s_vi_hostView = nil;
+static BOOL           g_vi_absorbRequested = NO;
+
+void VI_RequestAbsorb(void) { g_vi_absorbRequested = YES; }
+
+static inline CGRect VI_LerpRect(CGRect a, CGRect b, CGFloat t) {
+    return CGRectMake(a.origin.x + (b.origin.x - a.origin.x) * t,
+                      a.origin.y + (b.origin.y - a.origin.y) * t,
+                      a.size.width + (b.size.width - a.size.width) * t,
+                      a.size.height + (b.size.height - a.size.height) * t);
+}
+
+static void VI_DrawLiquidBridge(CGFloat eased) {
+    if (!s_vi_bridgeLayer) return;
+    CGRect bubbleRect = VI_LerpRect(s_vi_fromRect, s_vi_toRect, eased);
+    if (s_vi_bubble) s_vi_bubble.frame = bubbleRect;
+
+    if (eased <= 0.03f || eased >= 0.97f) {
+        s_vi_bridgeLayer.path = NULL;
+        s_vi_bridgeLayer.opacity = 0.0f;
+        return;
+    }
+    CGRect mainRect = s_vi_mainRect;
+    CGFloat midY = CGRectGetMidY(mainRect);
+    CGFloat neckHalf = (mainRect.size.height * 0.34f) * (1.0f - eased);
+    CGFloat leftX = CGRectGetMaxX(bubbleRect) - 3.0f;
+    CGFloat rightX = CGRectGetMinX(mainRect) + 3.0f;
+    if (rightX <= leftX) { s_vi_bridgeLayer.path = NULL; return; }
+
+    UIBezierPath *path = [UIBezierPath bezierPath];
+    [path moveToPoint:CGPointMake(leftX, midY - neckHalf * 1.35f)];
+    [path addQuadCurveToPoint:CGPointMake(rightX, midY - neckHalf * 1.35f)
+                 controlPoint:CGPointMake((leftX + rightX) * 0.5f, midY - neckHalf * 0.25f)];
+    [path addLineToPoint:CGPointMake(rightX, midY + neckHalf * 1.35f)];
+    [path addQuadCurveToPoint:CGPointMake(leftX, midY + neckHalf * 1.35f)
+                 controlPoint:CGPointMake((leftX + rightX) * 0.5f, midY + neckHalf * 0.25f)];
+    [path closePath];
+    s_vi_bridgeLayer.path = path.CGPath;
+    s_vi_bridgeLayer.opacity = (float)(1.0f - eased * 0.75f);
+}
+
+@interface VI_LiquidDriver : NSObject
++ (void)vi_liquidTick:(CADisplayLink *)link;
+@end
+@implementation VI_LiquidDriver
++ (void)vi_liquidTick:(CADisplayLink *)link {
+    CGFloat speed = 2.8f;
+    CGFloat dt = (CGFloat)link.duration;
+    if (dt <= 0) dt = 1.0f / 60.0f;
+    if (s_vi_progress < s_vi_targetProgress) {
+        s_vi_progress += speed * dt;
+        if (s_vi_progress > s_vi_targetProgress) s_vi_progress = s_vi_targetProgress;
+    } else if (s_vi_progress > s_vi_targetProgress) {
+        s_vi_progress -= speed * dt;
+        if (s_vi_progress < s_vi_targetProgress) s_vi_progress = s_vi_targetProgress;
+    }
+    CGFloat t = s_vi_progress;
+    CGFloat eased = t < 0.5f ? (2.0f * t * t) : (1.0f - pow(-2.0f * t + 2.0f, 2.0f) / 2.0f);
+    VI_DrawLiquidBridge(eased);
+    if (s_vi_progress == s_vi_targetProgress) {
+        [s_vi_displayLink invalidate];
+        s_vi_displayLink = nil;
+        if (s_vi_targetProgress == 0.0f && s_vi_bubble) {
+            s_vi_bubble.alpha = 0.0f;
+            // Hút xong — giật nảy nhẹ (snap) cho island
+            [UIView animateWithDuration:0.18 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:0.9 options:UIViewAnimationOptionAllowUserInteraction animations:^{
+                // snap feedback — để trống, chỉ tạo xung runloop
+            } completion:nil];
+        }
+    }
+}
+@end
+
+static void VI_StartLiquidTransition(CGFloat target) {
+    if (target == s_vi_targetProgress && fabs(s_vi_progress - target) < 0.001f) return;
+    s_vi_targetProgress = target;
+    if (!s_vi_displayLink) {
+        s_vi_displayLink = [CADisplayLink displayLinkWithTarget:[VI_LiquidDriver class] selector:@selector(vi_liquidTick:)];
+        [s_vi_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    }
+}
+
 // ====================================================================================================
 // LOGIC IPHONE 18 PRO MAX: 2 TÁC VỤ BÊN PHẢI RỘNG RA — 3 TÁC VỤ BÊN TRÁI NẢY RA, BÊN PHẢI THU TRÒN
 // ====================================================================================================
@@ -400,109 +498,81 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         }
     }
 
-    // KHI CÓ 3 TÁC VỤ TRỞ LÊN
-    // [FIX V3]: State machine — tránh layoutSubviews gọi liên tục giết animation giữa chừng (gây cứng đơ).
-    // Đồng thời đưa bubble lên window để nhận chạm thật (vì SBFTouchPassThroughView chuyển tiếp chạm, không nhận).
-    static BOOL s_vi_bubbleVisible = NO;
-    static BOOL s_vi_bubbleAnimating = NO;
+    // KHI CÓ 3 TÁC VỤ TRỞ LÊN — V4 LIQUID METABALL (nảy ra / hút về, có cầu nối chất lỏng)
+    UIView *vi_host = self.window ?: (self.superview ?: self);
+    CGRect mainRectHost = [self convertRect:primaryContainer.frame toView:vi_host];
+    CGFloat bubbleSize = mainRectHost.size.height;
+    if (bubbleSize < 28.0f) bubbleSize = 35.0f;
+    CGRect mergedRect = CGRectMake(CGRectGetMinX(mainRectHost) + 6.0f, mainRectHost.origin.y, bubbleSize, bubbleSize);
+    CGRect detachedRect = CGRectMake(CGRectGetMinX(mainRectHost) - bubbleSize - 7.5f, mainRectHost.origin.y, bubbleSize, bubbleSize);
 
     if (hasThreeOrMore) {
         if (@available(iOS 13.0, *)) {
             secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
         }
-        CGRect mainRect = primaryContainer.frame;
-        CGFloat bubbleSize = mainRect.size.height;
-        if (bubbleSize < 28.0f) bubbleSize = 35.0f;
-
         CGRect rightCircleRect = secondaryContainer.frame;
         rightCircleRect.size.width = bubbleSize;
         rightCircleRect.size.height = bubbleSize;
-        rightCircleRect.origin.y = mainRect.origin.y;
-        rightCircleRect.origin.x = CGRectGetMaxX(mainRect) + 7.0f;
+        rightCircleRect.origin.y = primaryContainer.frame.origin.y;
+        rightCircleRect.origin.x = CGRectGetMaxX(primaryContainer.frame) + 7.0f;
         secondaryContainer.frame = rightCircleRect;
         secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
 
-        UIView *vi_hostView = self.window ?: (self.superview ?: self);
-        CGRect mainRectHost = [self convertRect:mainRect toView:vi_hostView];
-        CGRect targetLeftRectHost = CGRectMake(CGRectGetMinX(mainRectHost) - bubbleSize - 7.5f, mainRectHost.origin.y, bubbleSize, bubbleSize);
-        CGRect startRectHost = CGRectMake(CGRectGetMinX(mainRectHost) + 6.0f, mainRectHost.origin.y, bubbleSize, bubbleSize);
-
-        if (!g_leftTripleBubble) {
-            g_leftTripleBubble = [[UIView alloc] initWithFrame:startRectHost];
-            g_leftTripleBubble.backgroundColor = [UIColor blackColor];
-            if (@available(iOS 13.0, *)) {
-                g_leftTripleBubble.layer.cornerCurve = kCACornerCurveContinuous;
-            }
-            g_leftTripleBubble.clipsToBounds = YES;
-            g_leftTripleBubble.alpha = 0.0f;
-            g_leftTripleBubble.userInteractionEnabled = YES;
-            UITapGestureRecognizer *vi_bubbleTap = [[UITapGestureRecognizer alloc] initWithTarget:g_leftTripleBubble action:@selector(vi_handleBubbleTap:)];
-            [g_leftTripleBubble addGestureRecognizer:vi_bubbleTap];
-
-            UIView *innerDot = [[UIView alloc] initWithFrame:CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f)];
-            innerDot.backgroundColor = [UIColor systemGreenColor];
-            innerDot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
-            innerDot.tag = 1902;
-            [g_leftTripleBubble addSubview:innerDot];
-        }
-
-        if (g_leftTripleBubble.superview != vi_hostView) {
-            [g_leftTripleBubble removeFromSuperview];
-            [vi_hostView addSubview:g_leftTripleBubble];
-        }
-        [vi_hostView bringSubviewToFront:g_leftTripleBubble];
-        g_leftTripleBubble.layer.cornerRadius = bubbleSize / 2.0f;
-        UIView *dot = [g_leftTripleBubble viewWithTag:1902];
-        if (dot) {
-            dot.frame = CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f);
+        if (!s_vi_bubble) {
+            s_vi_bubble = [[UIView alloc] initWithFrame:mergedRect];
+            s_vi_bubble.backgroundColor = [UIColor blackColor];
+            if (@available(iOS 13.0, *)) { s_vi_bubble.layer.cornerCurve = kCACornerCurveContinuous; }
+            s_vi_bubble.clipsToBounds = YES;
+            s_vi_bubble.alpha = 0.0f;
+            s_vi_bubble.userInteractionEnabled = YES;
+            s_vi_bubble.layer.cornerRadius = bubbleSize / 2.0f;
+            UITapGestureRecognizer *vi_tap = [[UITapGestureRecognizer alloc] initWithTarget:s_vi_bubble action:@selector(vi_handleBubbleTap:)];
+            [s_vi_bubble addGestureRecognizer:vi_tap];
+            UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f)];
+            dot.backgroundColor = [UIColor systemGreenColor];
             dot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
+            dot.tag = 1902;
+            [s_vi_bubble addSubview:dot];
         }
+        if (!s_vi_bridgeLayer) {
+            s_vi_bridgeLayer = [CAShapeLayer layer];
+            s_vi_bridgeLayer.fillColor = [UIColor blackColor].CGColor;
+            s_vi_bridgeLayer.zPosition = -1.0f;
+        }
+        if (s_vi_bubble.superview != vi_host) {
+            [s_vi_bubble removeFromSuperview];
+            [vi_host addSubview:s_vi_bubble];
+        }
+        if (s_vi_bridgeLayer.superlayer != vi_host.layer) {
+            [s_vi_bridgeLayer removeFromSuperlayer];
+            [vi_host.layer insertSublayer:s_vi_bridgeLayer atIndex:0];
+        }
+        [vi_host bringSubviewToFront:s_vi_bubble];
+        s_vi_bubble.alpha = 1.0f;
+        s_vi_mainRect = mainRectHost;
+        s_vi_hostView = vi_host;
 
-        if (!s_vi_bubbleVisible && !s_vi_bubbleAnimating) {
-            s_vi_bubbleAnimating = YES;
-            g_leftTripleBubble.frame = startRectHost;
-            g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.4f, 0.4f);
-            g_leftTripleBubble.alpha = 1.0f;
-            [UIView animateWithDuration:0.55
-                                  delay:0.0
-                 usingSpringWithDamping:0.58f
-                  initialSpringVelocity:0.85f
-                                options:UIViewAnimationOptionCurveEaseOut | UIViewAnimationOptionAllowUserInteraction
-                             animations:^{
-                g_leftTripleBubble.transform = CGAffineTransformIdentity;
-                g_leftTripleBubble.frame = targetLeftRectHost;
-            } completion:^(BOOL finished) {
-                s_vi_bubbleAnimating = NO;
-                s_vi_bubbleVisible = YES;
-            }];
-        } else if (!s_vi_bubbleAnimating) {
-            // ỔN ĐỊNH: chỉ đặt frame khi không đang animate — tránh giết animation giữa chừng
-            if (!CGRectEqualToRect(g_leftTripleBubble.frame, targetLeftRectHost)) {
-                g_leftTripleBubble.frame = targetLeftRectHost;
-            }
+        if (g_vi_absorbRequested) {
+            // User tap bubble → hút về
+            g_vi_absorbRequested = NO;
+            s_vi_fromRect = s_vi_bubble.frame;
+            s_vi_toRect = mergedRect;
+            VI_StartLiquidTransition(0.0f);
+        } else if (s_vi_targetProgress != 1.0f) {
+            // Nảy ra giọt nước
+            s_vi_fromRect = (CGRectEqualToRect(s_vi_bubble.frame, CGRectZero)) ? mergedRect : s_vi_bubble.frame;
+            s_vi_toRect = detachedRect;
+            VI_StartLiquidTransition(1.0f);
         }
     } else {
-        if ((s_vi_bubbleVisible || (g_leftTripleBubble && g_leftTripleBubble.alpha > 0.01f)) && !s_vi_bubbleAnimating) {
-            s_vi_bubbleAnimating = YES;
-            UIView *vi_hostViewHide = g_leftTripleBubble.superview ?: (self.window ?: self);
-            CGRect mainRectHide = [self convertRect:primaryContainer.frame toView:vi_hostViewHide];
-            CGFloat bubbleSizeHide = mainRectHide.size.height;
-            if (bubbleSizeHide < 28.0f) bubbleSizeHide = 35.0f;
-            CGRect absorbRectHost = CGRectMake(CGRectGetMinX(mainRectHide) + 8.0f, mainRectHide.origin.y, bubbleSizeHide, bubbleSizeHide);
-            [UIView animateWithDuration:0.38
-                                  delay:0.0
-                 usingSpringWithDamping:0.72f
-                  initialSpringVelocity:0.6f
-                                options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionAllowUserInteraction
-                             animations:^{
-                g_leftTripleBubble.frame = absorbRectHost;
-                g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.35f, 0.35f);
-                g_leftTripleBubble.alpha = 0.0f;
-            } completion:^(BOOL finished) {
-                s_vi_bubbleAnimating = NO;
-                s_vi_bubbleVisible = NO;
-            }];
+        // Hút về island
+        if (s_vi_bubble && s_vi_bubble.alpha > 0.01f && s_vi_targetProgress != 0.0f) {
+            s_vi_mainRect = mainRectHost;
+            s_vi_fromRect = s_vi_bubble.frame;
+            s_vi_toRect = mergedRect;
+            VI_StartLiquidTransition(0.0f);
         }
+        g_vi_absorbRequested = NO;
     }
 
     if (isExpandedNow != g_isIslandExpanded) {
