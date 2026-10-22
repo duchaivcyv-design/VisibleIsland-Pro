@@ -5,11 +5,9 @@
 #import <objc/runtime.h>
 
 // ====================================================================================================
-// VISIBLE ISLAND — CHUẨN IPHONE 18 PRO MAX 100% THẬT
-// - 1 Tác vụ: 1 Đảo chính
-// - 2 Tác vụ: 1 Đảo chính + 1 Giọt nước phải (Chuẩn gốc iOS)
-// - 3 Tác vụ (Bấm thêm Quay video màn hình / Nhạc / Hẹn giờ thứ 3): Mới kéo màng nước Metaball
-//   và búng giọt nước thứ 3 sang bên trái với Icon thật 100%, không bao giờ hiện cục vàng giả!
+// VISIBLE ISLAND — CHUẨN MÔ PHỎNG IPHONE 18 PRO MAX 100% THẬT
+// - 2 Tác vụ: Bên phải bung rộng hơn một chút, bên trái hoàn toàn không có gì.
+// - 3 Tác vụ: Giọt nước bên trái nảy bung ra, đồng thời bên phải thu gọn lại thành hình tròn (circle bubble).
 // ====================================================================================================
 
 CGFloat red = 0.0;
@@ -45,9 +43,6 @@ static BOOL lineDisabled;
 - (BOOL)isPlaying;
 - (BOOL)isPaused;
 - (id)nowPlayingApplication;
-@end
-
-@interface SBRecordingIndicatorManager : NSObject
 @end
 
 @interface SBSystemApertureWindow : UIWindow
@@ -94,14 +89,11 @@ static BOOL lineDisabled;
 @end
 
 // ====================================================================================================
-// BỘ NHẬN DIỆN TÁC VỤ THỨ 3 THẬT SỰ & HIỆU ỨNG KÉO MÀNG NƯỚC METABALL 18 PRO MAX
+// BỘ ĐIỀU KHIỂN HIỆU ỨNG 18 PRO MAX CHUẨN XÁC (3 TÁC VỤ: TRÁI NẢY - PHẢI THU TRÒN)
 // ====================================================================================================
 
-static UIView *g_thirdBubbleView = nil;
+static UIView *g_leftTripleBubble = nil;
 static CAShapeLayer *g_metaballBridgeLayer = nil;
-static UIImageView *g_thirdBubbleIcon = nil;
-static UIView *g_recordPulseDot = nil;
-static BOOL g_isThirdBubbleVisible = NO;
 static BOOL g_isIslandExpanded = NO;
 
 static inline BOOL VI_IsLandscapeOrientation(void) {
@@ -119,20 +111,18 @@ static inline BOOL VI_IsLandscapeOrientation(void) {
     return (bounds.size.width > bounds.size.height);
 }
 
-// Kiểm tra chính xác số lượng tác vụ nền thật sự đang chạy:
-// Chỉ trả về YES khi hệ thống đã đầy 2 ô (Chính + Phải) VÀ có thêm tác vụ thứ 3 đang chạy!
-static inline BOOL VI_HasRealThirdConcurrentActivity(UIView *primaryContainer, UIView *secondaryContainer, int *outThirdType) {
-    // Điều kiện tiên quyết: Đảo chính và Giọt nước bên phải (Tác vụ 1 & 2) phải đang hiển thị thật
+// Kiểm tra xem hệ thống có đang chạy đúng từ 3 tác vụ trở lên hay không
+static inline BOOL VI_HasThreeOrMoreConcurrentActivities(UIView *primaryContainer, UIView *secondaryContainer) {
     if (!primaryContainer || !secondaryContainer) return NO;
-    if (secondaryContainer.hidden || secondaryContainer.alpha < 0.05f || secondaryContainer.bounds.size.width < 12.0f) {
+    if (secondaryContainer.hidden || secondaryContainer.alpha < 0.05f || secondaryContainer.bounds.size.width < 10.0f) {
         return NO;
     }
 
-    int activeCount = 0;
-    BOOL isMusicActive = NO;
+    int activeTaskCount = 2; // Đã có chính + phải
     BOOL isScreenRecording = [UIScreen mainScreen].isCaptured;
 
     Class mediaCls = objc_getClass("SBMediaController");
+    BOOL isMusicActive = NO;
     if (mediaCls && [mediaCls respondsToSelector:@selector(sharedInstance)]) {
         SBMediaController *mc = [mediaCls sharedInstance];
         if (mc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
@@ -140,34 +130,20 @@ static inline BOOL VI_HasRealThirdConcurrentActivity(UIView *primaryContainer, U
         }
     }
 
-    if (isMusicActive) activeCount++;
-    if (isScreenRecording) activeCount++;
-
-    // Đếm các session/element đang hoạt động bên trong SystemAperture
-    // Nếu đã có 2 container hiển thị (ví dụ Hẹn giờ + Nhạc) và bạn bật thêm Quay màn hình (hoặc ngược lại)
-    if (isMusicActive && isScreenRecording) {
-        // Kiểm tra xem trong 2 container hiện tại có cái nào là Hẹn giờ / Cuộc gọi / Ghi âm thứ 3 không
-        // Hoặc khi cả Nhạc + Quay màn hình + 1 Live Activity khác cùng chạy
-        for (UIView *sub in primaryContainer.superview.subviews) {
-            NSString *cls = NSStringFromClass([sub class]);
-            if ([cls containsString:@"SystemApertureContainerView"] && !sub.hidden && sub.alpha > 0.1f && sub.bounds.size.width > 10.0f) {
-                activeCount++;
-            }
+    // Quét thêm các container phụ khác trong SystemAperture
+    for (UIView *sub in primaryContainer.superview.subviews) {
+        NSString *cls = NSStringFromClass([sub class]);
+        if ([cls containsString:@"SystemApertureContainerView"] && sub != primaryContainer && sub != secondaryContainer && !sub.hidden && sub.alpha > 0.1f) {
+            activeTaskCount++;
         }
     }
 
-    // Phân loại icon thật cho giọt nước thứ 3 bên trái:
-    // Type 1: Quay video màn hình (Chấm đỏ nhịp thở chuẩn iOS)
-    // Type 2: Đang phát nhạc (Icon sóng nhạc trắng/xanh)
-    if (isScreenRecording && isMusicActive && activeCount >= 4) {
-        if (outThirdType) *outThirdType = 1;
-        return YES;
-    }
+    if (isScreenRecording) activeTaskCount++;
+    if (isMusicActive) activeTaskCount++;
 
-    return NO;
+    return (activeTaskCount >= 3);
 }
 
-// Vẽ màng nước đen nối liền khi giọt nước tách ra hoặc hút vào (Metaball Liquid Path)
 static void VI_UpdateMetaballBridge(UIView *parentView, CGRect mainRect, CGRect bubbleRect, CGFloat progress) {
     if (!g_metaballBridgeLayer) {
         g_metaballBridgeLayer = [CAShapeLayer layer];
@@ -177,16 +153,16 @@ static void VI_UpdateMetaballBridge(UIView *parentView, CGRect mainRect, CGRect 
         [parentView.layer insertSublayer:g_metaballBridgeLayer atIndex:0];
     }
 
-    if (progress <= 0.02f || progress >= 0.92f) {
+    if (progress <= 0.02f || progress >= 0.95f) {
         g_metaballBridgeLayer.path = NULL;
         g_metaballBridgeLayer.opacity = 0.0f;
         return;
     }
 
     CGFloat midY = CGRectGetMidY(mainRect);
-    CGFloat neckHalfHeight = (mainRect.size.height * 0.34f) * (1.0f - progress);
-    CGFloat leftX = CGRectGetMaxX(bubbleRect) - 5.0f;
-    CGFloat rightX = CGRectGetMinX(mainRect) + 5.0f;
+    CGFloat neckHalfHeight = (mainRect.size.height * 0.32f) * (1.0f - progress);
+    CGFloat leftX = CGRectGetMaxX(bubbleRect) - 4.0f;
+    CGFloat rightX = CGRectGetMinX(mainRect) + 4.0f;
 
     if (rightX <= leftX) {
         g_metaballBridgeLayer.path = NULL;
@@ -194,74 +170,36 @@ static void VI_UpdateMetaballBridge(UIView *parentView, CGRect mainRect, CGRect 
     }
 
     UIBezierPath *path = [UIBezierPath bezierPath];
-    [path moveToPoint:CGPointMake(leftX, midY - neckHalfHeight * 1.4f)];
-    [path addQuadCurveToPoint:CGPointMake(rightX, midY - neckHalfHeight * 1.4f)
-                 controlPoint:CGPointMake((leftX + rightX) * 0.5f, midY - neckHalfHeight * 0.35f)];
-    [path addLineToPoint:CGPointMake(rightX, midY + neckHalfHeight * 1.4f)];
-    [path addQuadCurveToPoint:CGPointMake(leftX, midY + neckHalfHeight * 1.4f)
-                 controlPoint:CGPointMake((leftX + rightX) * 0.5f, midY + neckHalfHeight * 0.35f)];
+    [path moveToPoint:CGPointMake(leftX, midY - neckHalfHeight * 1.3f)];
+    [path addQuadCurveToPoint:CGPointMake(rightX, midY - neckHalfHeight * 1.3f)
+                 controlPoint:CGPointMake((leftX + rightX) * 0.5f, midY - neckHalfHeight * 0.3f)];
+    [path addLineToPoint:CGPointMake(rightX, midY + neckHalfHeight * 1.3f)];
+    [path addQuadCurveToPoint:CGPointMake(leftX, midY + neckHalfHeight * 1.3f)
+                 controlPoint:CGPointMake((leftX + rightX) * 0.5f, midY + neckHalfHeight * 0.3f)];
     [path closePath];
 
     g_metaballBridgeLayer.path = path.CGPath;
-    g_metaballBridgeLayer.opacity = (float)(1.0f - (progress * 0.85f));
+    g_metaballBridgeLayer.opacity = (float)(1.0f - (progress * 0.8f));
 }
 
 static inline CGFloat VI_DefaultDeviceYOffset(NSString *deviceModel) {
     if (!deviceModel) return 20.5;
-    if ([deviceModel isEqualToString:@"iPhone10,3"] ||
-        [deviceModel isEqualToString:@"iPhone10,6"] ||
-        [deviceModel isEqualToString:@"iPhone11,2"] ||
-        [deviceModel isEqualToString:@"iPhone12,3"]) {
-        return 20.5;
-    } else if ([deviceModel isEqualToString:@"iPhone11,6"] ||
-               [deviceModel isEqualToString:@"iPhone12,5"] ||
-               [deviceModel isEqualToString:@"iPhone11,8"] ||
-               [deviceModel isEqualToString:@"iPhone12,1"] ||
-               [deviceModel isEqualToString:@"iPhone14,4"]) {
-        return 22.5;
-    } else if ([deviceModel isEqualToString:@"iPhone13,2"] ||
-               [deviceModel isEqualToString:@"iPhone13,3"]) {
-        return 21.5;
-    } else if ([deviceModel isEqualToString:@"iPhone13,1"]) {
-        return 19.5;
-    } else if ([deviceModel isEqualToString:@"iPhone13,4"]) {
-        return 22.3;
-    } else if ([deviceModel isEqualToString:@"iPhone14,5"] ||
-               [deviceModel isEqualToString:@"iPhone14,2"] ||
-               [deviceModel isEqualToString:@"iPhone14,7"]) {
-        return 24.0;
-    } else if ([deviceModel isEqualToString:@"iPhone14,3"]) {
-        return 26.0;
-    }
+    if ([deviceModel isEqualToString:@"iPhone10,3"] || [deviceModel isEqualToString:@"iPhone10,6"] || [deviceModel isEqualToString:@"iPhone11,2"] || [deviceModel isEqualToString:@"iPhone12,3"]) return 20.5;
+    if ([deviceModel isEqualToString:@"iPhone11,6"] || [deviceModel isEqualToString:@"iPhone12,5"] || [deviceModel isEqualToString:@"iPhone11,8"] || [deviceModel isEqualToString:@"iPhone12,1"] || [deviceModel isEqualToString:@"iPhone14,4"]) return 22.5;
+    if ([deviceModel isEqualToString:@"iPhone13,2"] || [deviceModel isEqualToString:@"iPhone13,3"]) return 21.5;
+    if ([deviceModel isEqualToString:@"iPhone13,1"]) return 19.5;
+    if ([deviceModel isEqualToString:@"iPhone13,4"]) return 22.3;
+    if ([deviceModel isEqualToString:@"iPhone14,5"] || [deviceModel isEqualToString:@"iPhone14,2"] || [deviceModel isEqualToString:@"iPhone14,7"]) return 24.0;
+    if ([deviceModel isEqualToString:@"iPhone14,3"]) return 26.0;
     return 11.0;
 }
 
 static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     if (!deviceModel) return 35.0;
-    if ([deviceModel isEqualToString:@"iPhone10,3"] ||
-        [deviceModel isEqualToString:@"iPhone10,6"] ||
-        [deviceModel isEqualToString:@"iPhone11,2"] ||
-        [deviceModel isEqualToString:@"iPhone12,3"] ||
-        [deviceModel isEqualToString:@"iPhone13,2"] ||
-        [deviceModel isEqualToString:@"iPhone13,3"]) {
-        return 35.0;
-    } else if ([deviceModel isEqualToString:@"iPhone11,6"] ||
-               [deviceModel isEqualToString:@"iPhone12,5"] ||
-               [deviceModel isEqualToString:@"iPhone11,8"] ||
-               [deviceModel isEqualToString:@"iPhone12,1"]) {
-        return 37.0;
-    } else if ([deviceModel isEqualToString:@"iPhone13,1"]) {
-        return 33.0;
-    } else if ([deviceModel isEqualToString:@"iPhone13,4"] ||
-               [deviceModel isEqualToString:@"iPhone14,4"]) {
-        return 38.0;
-    } else if ([deviceModel isEqualToString:@"iPhone14,5"] ||
-               [deviceModel isEqualToString:@"iPhone14,2"] ||
-               [deviceModel isEqualToString:@"iPhone14,7"]) {
-        return 40.0;
-    } else if ([deviceModel isEqualToString:@"iPhone14,3"]) {
-        return 42.0;
-    }
+    if ([deviceModel isEqualToString:@"iPhone13,1"]) return 33.0;
+    if ([deviceModel isEqualToString:@"iPhone13,4"] || [deviceModel isEqualToString:@"iPhone14,4"]) return 38.0;
+    if ([deviceModel isEqualToString:@"iPhone14,5"] || [deviceModel isEqualToString:@"iPhone14,2"] || [deviceModel isEqualToString:@"iPhone14,7"]) return 40.0;
+    if ([deviceModel isEqualToString:@"iPhone14,3"]) return 42.0;
     return 35.0;
 }
 
@@ -281,13 +219,10 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
 - (void)layoutSubviews {
     %orig;
-
     BOOL isLandscape = VI_IsLandscapeOrientation();
     CGFloat safeScale = (scale > 0.1f) ? scale : 1.0f;
     NSString *deviceModel = [Model deviceModel];
 
-    // KHI XOAY NGANG MÀN HÌNH (LANDSCAPE):
-    // Giữ nguyên hiệu ứng Dynamic Island và cho phép nhấn giữ nghe nhạc nảy ra từ góc trên bên trái
     if (isLandscape) {
         if (scaleEnabled) {
             self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
@@ -305,7 +240,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         return;
     }
 
-    // MÀN HÌNH DỌC: GIỮ NGUYÊN 100% CẤU HÌNH TRONG SETTINGS CỦA BẠN
     if (scaleEnabled && fixEnabled) {
         self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
         %orig;
@@ -370,6 +304,10 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
 %end
 
+// ====================================================================================================
+// LOGIC IPHONE 18 PRO MAX: 2 TÁC VỤ BÊN PHẢI RỘNG RA — 3 TÁC VỤ BÊN TRÁI NẢY RA, BÊN PHẢI THU TRÒN
+// ====================================================================================================
+
 %hook SBFTouchPassThroughView
 
 - (void)layoutSubviews {
@@ -392,7 +330,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         }
     }
 
-    // TÌM ĐÚNG CÁC CONTAINER CỦA DYNAMIC ISLAND GỐC
     UIView *primaryContainer = nil;
     UIView *secondaryContainer = nil;
 
@@ -412,7 +349,6 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
     primaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
     BOOL isExpandedNow = (primaryContainer.bounds.size.height > 62.0f || primaryContainer.bounds.size.width > 270.0f);
 
-    // Khi xoay ngang màn hình: Neo đảo ở góc trên bên trái, khi nhấn giữ nhạc bung mượt từ góc trái trên
     if (VI_IsLandscapeOrientation()) {
         CGRect pFrame = primaryContainer.frame;
         pFrame.origin.x = 18.0f;
@@ -420,112 +356,116 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
         primaryContainer.frame = pFrame;
     }
 
-    // Kiểm tra xem có giọt nước phụ bên phải của hệ thống không
-    if (secondaryContainer && !secondaryContainer.hidden && secondaryContainer.alpha > 0.05f && !isExpandedNow) {
+    BOOL hasTwoOrMore = (secondaryContainer && !secondaryContainer.hidden && secondaryContainer.alpha > 0.05f && !isExpandedNow);
+    BOOL hasThreeOrMore = (!isExpandedNow) && VI_HasThreeOrMoreConcurrentActivities(primaryContainer, secondaryContainer);
+
+    // KHI CÓ 2 TÁC VỤ: Bên phải tự động mở rộng bề ngang thêm một chút cho thoáng và cân đối đúng 18 Pro Max
+    if (hasTwoOrMore && !hasThreeOrMore) {
         secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+        CGRect rFrame = secondaryContainer.frame;
+        rFrame.origin.x = CGRectGetMaxX(primaryContainer.frame) + 7.0f;
+        secondaryContainer.frame = rFrame;
+
+        // Ẩn giọt nước bên trái nếu có
+        if (g_leftTripleBubble && g_leftTripleBubble.alpha > 0.0f) {
+            g_leftTripleBubble.alpha = 0.0f;
+        }
     }
 
-    // CHỈ KHI CÓ TÁC VỤ THỨ 3 THẬT SỰ (Ví dụ: Nhạc + Hẹn giờ + Bấm thêm Quay video màn hình)
-    // thì mới tách giọt nước thứ 3 sang bên trái kèm màng nước Metaball
-    int thirdType = 0;
-    BOOL shouldShowThirdBubble = (!isExpandedNow) && VI_HasRealThirdConcurrentActivity(primaryContainer, secondaryContainer, &thirdType);
-
-    if (shouldShowThirdBubble) {
+    // KHI CÓ 3 TÁC VỤ TRỞ LÊN: Bên trái nảy giọt nước ra, bên phải tự động co thu gọn lại thành hình tròn (Circle Bubble)
+    if (hasThreeOrMore) {
+        secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
         CGRect mainRect = primaryContainer.frame;
         CGFloat bubbleSize = mainRect.size.height;
         if (bubbleSize < 28.0f) bubbleSize = 35.0f;
 
-        if (!g_thirdBubbleView) {
-            g_thirdBubbleView = [[UIView alloc] initWithFrame:CGRectMake(CGRectGetMinX(mainRect), mainRect.origin.y, bubbleSize, bubbleSize)];
-            g_thirdBubbleView.backgroundColor = [UIColor blackColor];
-            g_thirdBubbleView.layer.cornerCurve = kCACornerCurveContinuous;
-            g_thirdBubbleView.clipsToBounds = YES;
-            g_thirdBubbleView.alpha = 0.0f;
+        // Thu gọn bên phải thành hình tròn chuẩn 18 Pro Max
+        CGRect rightCircleRect = secondaryContainer.frame;
+        rightCircleRect.size.width = bubbleSize;
+        rightCircleRect.size.height = bubbleSize;
+        rightCircleRect.origin.y = mainRect.origin.y;
+        rightCircleRect.origin.x = CGRectGetMaxX(mainRect) + 7.0f;
+        secondaryContainer.frame = rightCircleRect;
+        secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
 
-            // Chấm đỏ Quay màn hình thật 100% chuẩn iOS (có vòng tròn mờ bên ngoài + tâm đỏ nhấp nháy)
-            g_recordPulseDot = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 18.0f, 18.0f)];
-            g_recordPulseDot.backgroundColor = [[UIColor systemRedColor] colorWithAlphaComponent:0.28f];
-            g_recordPulseDot.layer.cornerRadius = 9.0f;
+        // Khởi tạo giọt nước thứ 3 bên trái (Left Triple Bubble)
+        if (!g_leftTripleBubble) {
+            g_leftTripleBubble = [[UIView alloc] initWithFrame:CGRectMake(CGRectGetMinX(mainRect), mainRect.origin.y, bubbleSize, bubbleSize)];
+            g_leftTripleBubble.backgroundColor = [UIColor blackColor];
+            g_leftTripleBubble.layer.cornerCurve = kCACornerCurveContinuous;
+            g_leftTripleBubble.clipsToBounds = YES;
+            g_leftTripleBubble.alpha = 0.0f;
 
-            UIView *innerRedCore = [[UIView alloc] initWithFrame:CGRectMake(4.5f, 4.5f, 9.0f, 9.0f)];
-            innerRedCore.backgroundColor = [UIColor systemRedColor];
-            innerRedCore.layer.cornerRadius = 4.5f;
-            [g_recordPulseDot addSubview:innerRedCore];
-            [g_thirdBubbleView addSubview:g_recordPulseDot];
-
-            // Hiệu ứng nhịp thở cho chấm quay video màn hình
-            CABasicAnimation *pulse = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
-            pulse.fromValue = @(0.88f);
-            pulse.toValue = @(1.12f);
-            pulse.duration = 0.85;
-            pulse.autoreverses = YES;
-            pulse.repeatCount = HUGE_VALF;
-            [innerRedCore.layer addAnimation:pulse forKey:@"recordPulse"];
+            UIView *innerDot = [[UIView alloc] initWithFrame:CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f)];
+            innerDot.backgroundColor = [UIColor systemGreenColor];
+            innerDot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
+            innerDot.tag = 1902;
+            [g_leftTripleBubble addSubview:innerDot];
         }
 
-        if (g_thirdBubbleView.superview != self) {
-            [self addSubview:g_thirdBubbleView];
+        if (g_leftTripleBubble.superview != self) {
+            [self addSubview:g_leftTripleBubble];
         }
 
-        g_thirdBubbleView.layer.cornerRadius = bubbleSize / 2.0f;
-        g_recordPulseDot.center = CGPointMake(bubbleSize / 2.0f, bubbleSize / 2.0f);
+        g_leftTripleBubble.layer.cornerRadius = bubbleSize / 2.0f;
+        UIView *dot = [g_leftTripleBubble viewWithTag:1902];
+        if (dot) {
+            dot.frame = CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f);
+            dot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
+        }
 
-        CGRect finalLeftFrame = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 7.5f, mainRect.origin.y, bubbleSize, bubbleSize);
+        CGRect targetLeftRect = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 7.5f, mainRect.origin.y, bubbleSize, bubbleSize);
 
-        if (!g_isThirdBubbleVisible) {
-            g_isThirdBubbleVisible = YES;
-            // Xuất phát từ mép trong bên trái của viên thuốc chính rồi kéo màng nước tách ra
-            CGRect startFrame = CGRectMake(CGRectGetMinX(mainRect) + 6.0f, mainRect.origin.y, bubbleSize, bubbleSize);
-            g_thirdBubbleView.frame = startFrame;
-            g_thirdBubbleView.transform = CGAffineTransformMakeScale(0.45f, 0.45f);
-            g_thirdBubbleView.alpha = 1.0f;
+        if (g_leftTripleBubble.alpha < 0.5f) {
+            g_leftTripleBubble.frame = CGRectMake(CGRectGetMinX(mainRect) + 6.0f, mainRect.origin.y, bubbleSize, bubbleSize);
+            g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.4f, 0.4f);
+            g_leftTripleBubble.alpha = 1.0f;
 
-            VI_UpdateMetaballBridge(self, mainRect, startFrame, 0.25f);
+            VI_UpdateMetaballBridge(self, mainRect, g_leftTripleBubble.frame, 0.3f);
 
             [UIView animateWithDuration:0.18 animations:^{
-                VI_UpdateMetaballBridge(self, mainRect, finalLeftFrame, 0.65f);
+                VI_UpdateMetaballBridge(self, mainRect, targetLeftRect, 0.7f);
             } completion:^(BOOL finished) {
-                VI_UpdateMetaballBridge(self, mainRect, finalLeftFrame, 1.0f);
+                VI_UpdateMetaballBridge(self, mainRect, targetLeftRect, 1.0f);
             }];
 
-            [UIView animateWithDuration:0.55
+            [UIView animateWithDuration:0.52
                                   delay:0.0
                  usingSpringWithDamping:0.62f
-                  initialSpringVelocity:0.95f
+                  initialSpringVelocity:0.9f
                                 options:UIViewAnimationOptionCurveEaseOut | UIViewAnimationOptionAllowUserInteraction
                              animations:^{
-                g_thirdBubbleView.transform = CGAffineTransformIdentity;
-                g_thirdBubbleView.frame = finalLeftFrame;
+                g_leftTripleBubble.transform = CGAffineTransformIdentity;
+                g_leftTripleBubble.frame = targetLeftRect;
             } completion:nil];
         } else {
-            g_thirdBubbleView.frame = finalLeftFrame;
+            g_leftTripleBubble.frame = targetLeftRect;
         }
     } else {
-        // Khi tắt tác vụ thứ 3 hoặc chỉ còn 1-2 tác vụ: Hút giọt nước bên trái chui tọt vào trong đảo chính và biến mất hoàn toàn
-        if (g_isThirdBubbleVisible && g_thirdBubbleView) {
-            g_isThirdBubbleVisible = NO;
+        // Khi không đủ 3 tác vụ: Hút giọt nước bên trái biến mất
+        if (g_leftTripleBubble && g_leftTripleBubble.alpha > 0.0f) {
             CGRect mainRect = primaryContainer.frame;
             CGFloat bubbleSize = mainRect.size.height;
-            CGRectabsorbFrame = CGRectMake(CGRectGetMinX(mainRect) + 10.0f, mainRect.origin.y, bubbleSize, bubbleSize);
+            CGRect absorbRect = CGRectMake(CGRectGetMinX(mainRect) + 8.0f, mainRect.origin.y, bubbleSize, bubbleSize);
 
-            VI_UpdateMetaballBridge(self, mainRect, g_thirdBubbleView.frame, 0.45f);
+            VI_UpdateMetaballBridge(self, mainRect, g_leftTripleBubble.frame, 0.4f);
 
-            [UIView animateWithDuration:0.38
+            [UIView animateWithDuration:0.35
                                   delay:0.0
                  usingSpringWithDamping:0.75f
                   initialSpringVelocity:0.7f
                                 options:UIViewAnimationOptionCurveEaseInOut
                              animations:^{
-                g_thirdBubbleView.frame = absorbFrame;
-                g_thirdBubbleView.transform = CGAffineTransformMakeScale(0.35f, 0.35f);
-                g_thirdBubbleView.alpha = 0.0f;
+                g_leftTripleBubble.frame = absorbRect;
+                g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.35f, 0.35f);
+                g_leftTripleBubble.alpha = 0.0f;
             } completion:^(BOOL finished) {
-                VI_UpdateMetaballBridge(self, mainRect, absorbFrame, 1.0f);
+                VI_UpdateMetaballBridge(self, mainRect, absorbRect, 1.0f);
             }];
         }
     }
 
-    // Hiệu ứng đàn hồi chuẩn 18 Pro Max khi nhấn giữ bung/thu trình phát nhạc
+    // Hiệu ứng lò xo khi bung trình phát nhạc (Expanded)
     if (isExpandedNow != g_isIslandExpanded) {
         g_isIslandExpanded = isExpandedNow;
         primaryContainer.transform = CGAffineTransformMakeScale(0.94f, 0.94f);
@@ -542,7 +482,7 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 
 %end
 
-// Ẩn triệt để rèm đen thừa (_SBSystemApertureMagiciansCurtainView)
+// Chặn rèm đen (_SBSystemApertureMagiciansCurtainView)
 %hook _SBSystemApertureMagiciansCurtainView
 
 -(void)didMoveToWindow {
@@ -655,7 +595,7 @@ void preferencesChanged() {
     yNot = (prefs && [prefs objectForKey:@"yNot"]) ? [[prefs objectForKey:@"yNot"] floatValue] : 40.0f;
     red = (prefs && [prefs objectForKey:@"red"]) ? [[prefs objectForKey:@"red"] floatValue] : 0.0f;
     green = (prefs && [prefs objectForKey:@"green"]) ? [[prefs objectForKey:@"green"] floatValue] : 0.0f;
-    blue = (prefs && [prefs objectForKey:@"blue"]) ? [[prefs objectForKey:@"blue"] floatValue] : 0.0f;
+    blue = (prefs && [prefs objectForKey:@"blue"] ? [[prefs valueForKey:@"blue"] floatValue] : 0.0f;
     alpha = (prefs && [prefs objectForKey:@"alpha"]) ? [[prefs objectForKey:@"alpha"] floatValue] : 1.0f;
     scale = (prefs && [prefs objectForKey:@"scale"]) ? [[prefs objectForKey:@"scale"] floatValue] : 1.0f;
     if (scale <= 0.05f) scale = 1.0f;
