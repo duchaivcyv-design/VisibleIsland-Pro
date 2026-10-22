@@ -687,6 +687,8 @@ static void respring(CFNotificationCenterRef center, void *observer, CFStringRef
   [[%c(FBSystemService) sharedInstance] exitAndRelaunch:YES];
 }
 
+static void IslandApplyState(void);
+
 void preferencesChanged(){
     NSDictionary *prefs = [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"com.ethxnn88.visibleislandprefs"];
 
@@ -844,10 +846,6 @@ static void IslandTestCallback(CFNotificationCenterRef c, void *o, CFStringRef n
 
 static void IslandApplyState(void) {
     if (islandEnabled) { IslandShowCompact(@"●", @"✓"); } else { IslandHide(); }
-}
-
-static void IslandTestCallback(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
-    IslandFlash(@"Dynamic Island", @"●", @"✓");
 }
 
 %ctor{
