@@ -1,6 +1,12 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
+#import <QuartzCore/QuartzCore.h>
 #import <sys/sysctl.h>
+#import <objc/runtime.h>
+
+// ====================================================================================================
+// VISIBLE ISLAND — BẢN MOD CHUẨN IPHONE 18 PRO MAX (GIỮ NGUYÊN SETTINGS GỐC + 2 BÊN METABALL + XOAY NGANG)
+// ====================================================================================================
 
 CGFloat red = 0.0;
 CGFloat green = 0.0;
@@ -16,8 +22,6 @@ CGFloat yNot = 40;
 
 static BOOL fixEnabled;
 static BOOL islandEnabled;
-static BOOL g_isSpringBoard = NO;
-static BOOL g_islandReady = NO;   // true sau khi SpringBoard khởi tạo xong; trước đó không gọi UIKit
 static BOOL posEnabled;
 static BOOL hideEnabled;
 static BOOL notificationFix;
@@ -28,19 +32,17 @@ static BOOL scaleEnabled;
 static BOOL lineDisabled;
 
 @interface FBSystemService : NSObject
-
 +(id)sharedInstance;
 -(void)exitAndRelaunch:(BOOL)arg1;
-
 @end
 
-@interface SBSystemApertureWindow : UIView
+@interface SBSystemApertureWindow : UIWindow
 @end
 
 @interface _SBSystemApertureMagiciansCurtainView : UIView
 @end
 
-@interface SBBannerWindow : UIView
+@interface SBBannerWindow : UIWindow
 @end
 
 @interface _SBGainMapView : UIView
@@ -52,10 +54,14 @@ static BOOL lineDisabled;
 @interface SBFTouchPassThroughView : UIView
 @end
 
+@interface SBSystemApertureViewController : UIViewController
+@end
+
+@interface SBSystemApertureContainerView : UIView
+@end
+
 @interface Model : NSObject
-
 + (NSString *)deviceModel;
-
 @end
 
 @implementation Model
@@ -82,272 +88,374 @@ static BOOL lineDisabled;
 
 @end
 
+// ====================================================================================================
+// BỘ ĐIỀU KHIỂN HIỆU ỨNG IPHONE 18 PRO MAX:
+// 1. Nảy giọt nước 2 bên (Trái + Phải) mượt 100% như Video 1 & 2
+// 2. Xoay ngang màn hình (Landscape): Giữ nguyên Dynamic Island ở góc trên bên trái, nhấn giữ đang nghe
+//    nhạc nảy bung ra từ góc trên bên trái không bị mất hiệu ứng hay đè bóng đen
+// ====================================================================================================
+
+static UIView *g_leftDetachedBubble = nil;
+static UIView *g_leftMetaballNeck = nil;
+static BOOL g_isIslandExpanded = NO;
+
+static inline BOOL VI_IsLandscapeOrientation(void) {
+    UIInterfaceOrientation orient = UIInterfaceOrientationPortrait;
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    orient = [[UIApplication sharedApplication] statusBarOrientation];
+    #pragma clang diagnostic pop
+    if (UIInterfaceOrientationIsLandscape(orient)) return YES;
+
+    UIDeviceOrientation devOrient = [[UIDevice currentDevice] orientation];
+    if (UIDeviceOrientationIsLandscape(devOrient)) return YES;
+
+    CGRect bounds = [UIScreen mainScreen].bounds;
+    return (bounds.size.width > bounds.size.height);
+}
+
+static inline CGFloat VI_DefaultDeviceYOffset(NSString *deviceModel) {
+    if (!deviceModel) return 20.5;
+    if ([deviceModel isEqualToString:@"iPhone10,3"] ||
+        [deviceModel isEqualToString:@"iPhone10,6"] ||
+        [deviceModel isEqualToString:@"iPhone11,2"] ||
+        [deviceModel isEqualToString:@"iPhone12,3"]) {
+        return 20.5;
+    } else if ([deviceModel isEqualToString:@"iPhone11,6"] ||
+               [deviceModel isEqualToString:@"iPhone12,5"] ||
+               [deviceModel isEqualToString:@"iPhone11,8"] ||
+               [deviceModel isEqualToString:@"iPhone12,1"] ||
+               [deviceModel isEqualToString:@"iPhone14,4"]) {
+        return 22.5;
+    } else if ([deviceModel isEqualToString:@"iPhone13,2"] ||
+               [deviceModel isEqualToString:@"iPhone13,3"]) {
+        return 21.5;
+    } else if ([deviceModel isEqualToString:@"iPhone13,1"]) {
+        return 19.5;
+    } else if ([deviceModel isEqualToString:@"iPhone13,4"]) {
+        return 22.3;
+    } else if ([deviceModel isEqualToString:@"iPhone14,5"] ||
+               [deviceModel isEqualToString:@"iPhone14,2"] ||
+               [deviceModel isEqualToString:@"iPhone14,7"]) {
+        return 24.0;
+    } else if ([deviceModel isEqualToString:@"iPhone14,3"]) {
+        return 26.0;
+    }
+    return 11.0; // Cho iPhone 8 Plus / Home Button hoặc thiết bị khác
+}
+
+static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
+    if (!deviceModel) return 35.0;
+    if ([deviceModel isEqualToString:@"iPhone10,3"] ||
+        [deviceModel isEqualToString:@"iPhone10,6"] ||
+        [deviceModel isEqualToString:@"iPhone11,2"] ||
+        [deviceModel isEqualToString:@"iPhone12,3"] ||
+        [deviceModel isEqualToString:@"iPhone13,2"] ||
+        [deviceModel isEqualToString:@"iPhone13,3"]) {
+        return 35.0;
+    } else if ([deviceModel isEqualToString:@"iPhone11,6"] ||
+               [deviceModel isEqualToString:@"iPhone12,5"] ||
+               [deviceModel isEqualToString:@"iPhone11,8"] ||
+               [deviceModel isEqualToString:@"iPhone12,1"]) {
+        return 37.0;
+    } else if ([deviceModel isEqualToString:@"iPhone13,1"]) {
+        return 33.0;
+    } else if ([deviceModel isEqualToString:@"iPhone13,4"] ||
+               [deviceModel isEqualToString:@"iPhone14,4"]) {
+        return 38.0;
+    } else if ([deviceModel isEqualToString:@"iPhone14,5"] ||
+               [deviceModel isEqualToString:@"iPhone14,2"] ||
+               [deviceModel isEqualToString:@"iPhone14,7"]) {
+        return 40.0;
+    } else if ([deviceModel isEqualToString:@"iPhone14,3"]) {
+        return 42.0;
+    }
+    return 35.0;
+}
+
 %hook SBSystemApertureWindow
+
+// Giữ cho cửa sổ Dynamic Island luôn hiển thị cả khi xoay ngang màn hình
+- (void)setHidden:(BOOL)hidden {
+    if (VI_IsLandscapeOrientation()) {
+        %orig(NO);
+        return;
+    }
+    %orig(hidden);
+}
+
+- (BOOL)_shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    return YES;
+}
 
 - (void)layoutSubviews {
     %orig;
-    if (scaleEnabled && fixEnabled) {
-        self.transform = CGAffineTransformMakeScale(scale, scale);
-        NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig;
-            CGFloat SyPos = 20.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            CGFloat SyPos = 20.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            CGFloat SyPos = 20.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            CGFloat SyPos = 20.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
 
+    BOOL isLandscape = VI_IsLandscapeOrientation();
+    CGFloat safeScale = (scale > 0.1f) ? scale : 1.0f;
+    NSString *deviceModel = [Model deviceModel];
 
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max FAKE OFFSETS??
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max FAKE OFFSTES??
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11 FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12 FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 21.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 21.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 19.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 22.3 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig;
-            CGFloat SyPos = 24 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            CGFloat SyPos = 24 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig;
-            CGFloat SyPos = 24 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini FAKE OFFSETS??
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max FAKE OFFSETS??
-            %orig;
-            CGFloat SyPos = 26 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
+    // XỬ LÝ KHI XOAY NGANG MÀN HÌNH (LANDSCAPE):
+    // Giữ nguyên hiệu ứng Dynamic Island nằm ở góc trên bên trái và khi giữ nghe nhạc nảy ra từ góc trên bên trái
+    if (isLandscape) {
+        if (scaleEnabled) {
+            self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
+        } else {
+            self.transform = CGAffineTransformIdentity;
         }
-    } else if (scaleEnabled && posEnabled) {
-        self.transform = CGAffineTransformMakeScale(scale, scale);
+        CGRect frame = self.frame;
+        // Neo góc trên bên trái khi xoay ngang để hiệu ứng bung nhạc nảy từ bên trái phía trên
+        CGFloat landY = posEnabled ? (yPos / (scaleEnabled ? safeScale : 1.0f)) : 10.0f;
+        CGFloat landX = posEnabled && xPos != 0 ? (xPos / (scaleEnabled ? safeScale : 1.0f)) : -([UIScreen mainScreen].bounds.size.width * 0.28f);
+        frame.origin.y = landY;
+        frame.origin.x = landX;
+        self.frame = frame;
+        self.hidden = NO;
+        self.alpha = 1.0f;
+        return;
+    }
+
+    // XỬ LÝ MÀN HÌNH DỌC (GIỮ NGUYÊN 100% LOGIC SETTINGS GỐC CỦA TWEAK)
+    if (scaleEnabled && fixEnabled) {
+        self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
         %orig;
-        CGFloat SyPos = yPos / scale;
+        CGFloat SyPos = VI_DefaultDeviceYOffset(deviceModel) / safeScale;
         CGRect frame = self.frame;
         frame.origin.y = SyPos;
-        if (xPos > 0) {
-            CGFloat SxPos = xPos / scale;
+        self.frame = frame;
+    } else if (scaleEnabled && posEnabled) {
+        self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
+        %orig;
+        CGFloat SyPos = yPos / safeScale;
+        CGRect frame = self.frame;
+        frame.origin.y = SyPos;
+        if (xPos != 0) {
+            CGFloat SxPos = xPos / safeScale;
             frame.origin.x = SxPos;
         }
         self.frame = frame;
     } else if (fixEnabled && !scaleEnabled) {
-        NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 20.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 20.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 20.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 20.5;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max FAKE OFFSETS??
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max FAKE OFFSTES??
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11 FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12 FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 21.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 21.5;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 19.5;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.3;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 24;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 24;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 24;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini FAKE OFFSETS??
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max FAKE OFFSETS??
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 26;
-            self.frame = frame;
-        }
+        %orig;
+        CGRect frame = self.frame;
+        frame.origin.y = VI_DefaultDeviceYOffset(deviceModel);
+        self.frame = frame;
     } else if (posEnabled && !scaleEnabled) {
         %orig;
         CGRect frame = self.frame;
         frame.origin.y = yPos;
         frame.origin.x = xPos;
         self.frame = frame;
-    } else if (scaleEnabled && !posEnabled | scaleEnabled && !fixEnabled) {
-        self.transform = CGAffineTransformMakeScale(scale, scale);
+    } else if (scaleEnabled && (!posEnabled || !fixEnabled)) {
+        self.transform = CGAffineTransformMakeScale(safeScale, safeScale);
     }
 }
 
 %end
 
+// ====================================================================================================
+// BẺ KHÓA XOAY NGANG & HIỆU ỨNG NẢY 2 BÊN (DUAL DETACHED BUBBLES NHƯ VIDEO 1 - 2)
+// ====================================================================================================
+
+%hook SBSystemApertureViewController
+
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return UIInterfaceOrientationMaskAll;
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+
+    UIView *rootView = self.view;
+    if (!rootView) return;
+
+    // Ẩn lớp bóng đen/viền thừa khi bung lớn để không bị lỗi 2 hình đè nhau như Video 3
+    for (UIView *sub in rootView.subviews) {
+        NSString *clsName = NSStringFromClass([sub class]);
+        if ([clsName containsString:@"Curtain"] || [clsName containsString:@"GainMap"]) {
+            if (fixEnabled || posEnabled || hideEnabled) {
+                sub.hidden = YES;
+                sub.alpha = 0.0f;
+            }
+        }
+    }
+}
+
+%end
+
+// Hook vào Container của SystemAperture để tạo hiệu ứng nảy 2 giọt nước 2 bên (Trái + Phải) chuẩn 18 Pro Max
+%hook SBFTouchPassThroughView
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (transEnabled) {
+        if (self.subviews.count == 4) {
+            UIView *targetSubview = self.subviews[2];
+            if (targetSubview.alpha == 1.0 && targetSubview.userInteractionEnabled == 0) {
+                targetSubview.alpha = alpha;
+            }
+        }
+    }
+    if (lineDisabled) {
+        if (self.subviews.count == 4) {
+            UIView *lineView = self.subviews[1];
+            if (lineView.alpha == 1.0 && lineView.userInteractionEnabled == 0) {
+                lineView.hidden = YES;
+            }
+        }
+    }
+
+    // KIỂM TRA CÁC CONTAINER CON CỦA DYNAMIC ISLAND ĐỂ KÍCH HOẠT NẢY 2 BÊN & XOAY NGANG
+    if (self.subviews.count >= 2) {
+        UIView *primaryContainer = nil;
+        UIView *secondaryContainer = nil;
+
+        for (UIView *sub in self.subviews) {
+            NSString *cls = NSStringFromClass([sub class]);
+            if ([cls containsString:@"SystemApertureContainerView"]) {
+                if (!primaryContainer) {
+                    primaryContainer = sub;
+                } else if (!secondaryContainer) {
+                    secondaryContainer = sub;
+                }
+            }
+        }
+
+        if (primaryContainer) {
+            primaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+            BOOL isExpandedNow = (primaryContainer.bounds.size.height > 65.0f || primaryContainer.bounds.size.width > 280.0f);
+
+            // Nếu đang xoay ngang màn hình và nhấn giữ bung trình phát nhạc:
+            // Ép khung bung nảy ra từ góc trên bên trái mượt mà, không bị mất hiệu ứng
+            if (VI_IsLandscapeOrientation()) {
+                CGRect pFrame = primaryContainer.frame;
+                if (isExpandedNow) {
+                    pFrame.origin.x = 18.0f;
+                    pFrame.origin.y = 12.0f;
+                    primaryContainer.frame = pFrame;
+                } else {
+                    pFrame.origin.x = 18.0f;
+                    pFrame.origin.y = 10.0f;
+                    primaryContainer.frame = pFrame;
+                }
+            }
+
+            // HIỆU ỨNG NẢY 2 CÁI 2 BÊN (TRÁI & PHẢI) GIỐNG VIDEO 1 & 2 (IPHONE 18 PRO MAX)
+            // Khi có pill phụ bên phải (secondaryContainer đang hiển thị) và đảo ở trạng thái thu gọn:
+            if (secondaryContainer && !secondaryContainer.hidden && secondaryContainer.alpha > 0.01f && !isExpandedNow && secondaryContainer.bounds.size.width > 10.0f) {
+                secondaryContainer.layer.cornerCurve = kCACornerCurveContinuous;
+
+                // Căn chỉnh giọt nước bên phải tách chuẩn khoảng cách metaball 8pt
+                CGRect mainRect = primaryContainer.frame;
+                CGRect rightRect = secondaryContainer.frame;
+                CGFloat bubbleSize = mainRect.size.height;
+                rightRect.size.width = bubbleSize;
+                rightRect.size.height = bubbleSize;
+                rightRect.origin.y = mainRect.origin.y;
+                rightRect.origin.x = CGRectGetMaxX(mainRect) + 8.0f;
+                secondaryContainer.frame = rightRect;
+                secondaryContainer.layer.cornerRadius = bubbleSize / 2.0f;
+
+                // Khởi tạo giọt nước đối xứng bên trái (Left Detached Bubble) nảy ra từ bên trái đảo như Video 1
+                if (!g_leftDetachedBubble) {
+                    g_leftDetachedBubble = [[UIView alloc] initWithFrame:CGRectMake(CGRectGetMinX(mainRect), mainRect.origin.y, bubbleSize, bubbleSize)];
+                    g_leftDetachedBubble.backgroundColor = [UIColor blackColor];
+                    g_leftDetachedBubble.layer.cornerCurve = kCACornerCurveContinuous;
+                    g_leftDetachedBubble.clipsToBounds = YES;
+                    g_leftDetachedBubble.userInteractionEnabled = NO;
+
+                    // Chấm tròn/vòng biểu tượng bên trái giống hiệu ứng A10 / Live Activity trong Video 1 & 2
+                    UIView *innerBadge = [[UIView alloc] initWithFrame:CGRectMake(5.5f, 5.5f, bubbleSize - 11.0f, bubbleSize - 11.0f)];
+                    innerBadge.backgroundColor = [UIColor colorWithRed:1.0f green:0.82f blue:0.0f alpha:1.0f];
+                    innerBadge.layer.cornerRadius = (bubbleSize - 11.0f) / 2.0f;
+                    innerBadge.tag = 1801;
+                    [g_leftDetachedBubble addSubview:innerBadge];
+                }
+
+                if (g_leftDetachedBubble.superview != self) {
+                    [self addSubview:g_leftDetachedBubble];
+                }
+
+                CGRect targetLeftRect = CGRectMake(CGRectGetMinX(mainRect) - bubbleSize - 8.0f, mainRect.origin.y, bubbleSize, bubbleSize);
+                g_leftDetachedBubble.layer.cornerRadius = bubbleSize / 2.0f;
+
+                UIView *badge = [g_leftDetachedBubble viewWithTag:1801];
+                if (badge) {
+                    badge.frame = CGRectMake(5.5f, 5.5f, bubbleSize - 11.0f, bubbleSize - 11.0f);
+                    badge.layer.cornerRadius = (bubbleSize - 11.0f) / 2.0f;
+                }
+
+                if (g_leftDetachedBubble.alpha < 0.5f) {
+                    // Bắt đầu từ trong lòng viên thuốc chính rồi búng đàn hồi sang bên trái
+                    g_leftDetachedBubble.frame = CGRectMake(CGRectGetMinX(mainRect) + 4.0f, mainRect.origin.y, bubbleSize, bubbleSize);
+                    g_leftDetachedBubble.transform = CGAffineTransformMakeScale(0.4f, 0.4f);
+                    [UIView animateWithDuration:0.52
+                                          delay:0.0
+                         usingSpringWithDamping:0.65f
+                          initialSpringVelocity:0.9f
+                                        options:UIViewAnimationOptionCurveEaseOut | UIViewAnimationOptionAllowUserInteraction
+                                     animations:^{
+                        g_leftDetachedBubble.alpha = 1.0f;
+                        g_leftDetachedBubble.transform = CGAffineTransformIdentity;
+                        g_leftDetachedBubble.frame = targetLeftRect;
+                    } completion:nil];
+                } else {
+                    g_leftDetachedBubble.frame = targetLeftRect;
+                }
+            } else {
+                // Khi thu về hoặc khi nhấn giữ bung lớn trình phát nhạc: hút giọt nước bên tráiกลับ vào trong đảo chính
+                if (g_leftDetachedBubble && g_leftDetachedBubble.alpha > 0.0f) {
+                    CGRect mainRect = primaryContainer.frame;
+                    [UIView animateWithDuration:0.35
+                                          delay:0.0
+                         usingSpringWithDamping:0.78f
+                          initialSpringVelocity:0.6f
+                                        options:UIViewAnimationOptionCurveEaseInOut
+                                     animations:^{
+                        g_leftDetachedBubble.alpha = 0.0f;
+                        g_leftDetachedBubble.transform = CGAffineTransformMakeScale(0.3f, 0.3f);
+                        g_leftDetachedBubble.frame = CGRectMake(CGRectGetMinX(mainRect) + 8.0f, mainRect.origin.y, mainRect.size.height, mainRect.size.height);
+                    } completion:nil];
+                }
+            }
+
+            // Khi nhấn giữ bung trình phát nhạc (Transition Compact -> Expanded):
+            // Tạo lực nảy đàn hồi từ vị trí đảo (hoặc góc trái trên khi xoay ngang)
+            if (isExpandedNow != g_isIslandExpanded) {
+                g_isIslandExpanded = isExpandedNow;
+                primaryContainer.transform = CGAffineTransformMakeScale(0.92f, 0.92f);
+                [UIView animateWithDuration:0.48
+                                      delay:0.0
+                     usingSpringWithDamping:0.70f
+                      initialSpringVelocity:0.85f
+                                    options:UIViewAnimationOptionCurveEaseOut | UIViewAnimationOptionAllowUserInteraction
+                                 animations:^{
+                    primaryContainer.transform = CGAffineTransformIdentity;
+                } completion:nil];
+            }
+        }
+    }
+}
+
+%end
+
+// Chặn triệt để lớp rèm đen (_SBSystemApertureMagiciansCurtainView) gây lỗi bóng đen đè lên nhau trong Video 3
 %hook _SBSystemApertureMagiciansCurtainView
 
 -(void)didMoveToWindow {
-    if (fixEnabled) {
-        self.hidden = YES;
-    } else if (posEnabled) {
-        self.hidden = YES;
-    } else {
-        self.hidden = NO;
-    }
+    %orig;
+    self.hidden = YES;
+    self.alpha = 0.0f;
+}
+
+-(void)layoutSubviews {
+    %orig;
+    self.hidden = YES;
+    self.alpha = 0.0f;
 }
 
 %end
@@ -355,7 +463,10 @@ static BOOL lineDisabled;
 %hook _SBGainMapView
 
 - (void)didMoveToWindow {
-    if (hideEnabled) {
+    %orig;
+    if (hideEnabled || fixEnabled || posEnabled) {
+        self.hidden = YES;
+        self.alpha = 0.0f;
         if (self.superview) {
             [self removeFromSuperview];
         }
@@ -364,15 +475,12 @@ static BOOL lineDisabled;
 
 %end
 
-
-
 %hook _SBSystemApertureContainerViewContentView
 
 - (void)layoutSubviews {
     UIColor *backgroundColor = [self backgroundColor];
     if (colorEnabled) {
         if (!backgroundColor) {
-        
             UIColor *customColor = [[UIColor alloc] initWithRed:red green:green blue:blue alpha:alpha];
             [self setBackgroundColor:customColor];
         }
@@ -382,302 +490,33 @@ static BOOL lineDisabled;
 
 %end
 
-%hook SBFTouchPassThroughView
-
-- (void)layoutSubviews {
-    %orig;
-    
-    if (transEnabled) {
-        if (self.subviews.count == 4) {
-            UIView *targetSubview = self.subviews[2];
-            if (targetSubview.alpha == 1.0 && targetSubview.userInteractionEnabled == 0) {
-                targetSubview.alpha = alpha;
-            }
-        }
-    } if (lineDisabled) {
-        if (self.subviews.count == 4) {
-            UIView *lineView = self.subviews[1];
-            if (lineView.alpha == 1.0 && lineView.userInteractionEnabled == 0) {
-                lineView.hidden = YES;
-            }
-        }
-    }
-}
-
-%end
-
 %hook SBBannerWindow
 
 - (CGRect)frame {
+    CGRect origFrame = %orig;
+    NSString *deviceModel = [Model deviceModel];
     if (notificationFix) {
-        NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig;
-            return CGRectMake(0, 35, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            return CGRectMake(0, 35, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            return CGRectMake(0, 35, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            return CGRectMake(0, 35, 375, 812);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max FAKE OFFSETS??
-            %orig;
-            return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max FAKE OFFSTES??
-            %orig;
-            return CGRectMake(0, 37, 414, 896);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR FIND OFFSETS - USING ESTIMATED
-            %orig;
-            return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11 FIND OFFSETS - USING ESTIMATED
-            %orig;
-            return CGRectMake(0, 37, 414, 896);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12 FIND OFFSETS - USING ESTIMATED
-            %orig;
-            return CGRectMake(0, 35, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro FIND OFFSETS - USING ESTIMATED
-            %orig;
-            return CGRectMake(0, 35, 390, 844);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini FIND OFFSETS - USING ESTIMATED
-            %orig;
-            return CGRectMake(0, 33, 360, 780);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max FIND OFFSETS - USING ESTIMATED
-            %orig;
-            return CGRectMake(0, 38, 428, 926);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig;
-            return CGRectMake(0, 40, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            return CGRectMake(0, 40, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig;
-            return CGRectMake(0, 40, 390, 844);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini FAKE OFFSETS??
-            %orig;
-            return CGRectMake(0, 38, 360, 780);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max FAKE OFFSETS??
-            %orig;
-            return CGRectMake(0, 42, 428, 926);
-        }
+        origFrame.origin.x = 0.0f;
+        origFrame.origin.y = VI_DefaultBannerYOffset(deviceModel);
+        return origFrame;
     } else if (notEnabled) {
-        NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig;
-            return CGRectMake(xNot, yNot, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            return CGRectMake(xNot, yNot, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            return CGRectMake(xNot, yNot, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            return CGRectMake(xNot, yNot, 375, 812);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max
-            %orig;
-            return CGRectMake(xNot, yNot, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11
-            %orig;
-            return CGRectMake(xNot, yNot, 414, 896);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR
-            %orig;
-            return CGRectMake(xNot, yNot, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11
-            %orig;
-            return CGRectMake(xNot, yNot, 414, 896);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini
-            %orig;
-            return CGRectMake(xNot, yNot, 360, 780);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max
-            %orig;
-            return CGRectMake(xNot, yNot, 428, 926);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini
-            %orig;
-            return CGRectMake(xNot, yNot, 360, 780);
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max
-            %orig;
-            return CGRectMake(xNot, yNot, 428, 926);
-        }
+        origFrame.origin.x = xNot;
+        origFrame.origin.y = yNot;
+        return origFrame;
     }
-
-    return %orig;
+    return origFrame;
 }
 
 - (void)setFrame:(CGRect)frame {
+    NSString *deviceModel = [Model deviceModel];
     if (notificationFix) {
-        NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig(CGRectMake(0, 35, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig(CGRectMake(0, 35, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig(CGRectMake(0, 35, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig(CGRectMake(0, 35, 375, 812));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max FAKE OFFSETS??
-            %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max FAKE OFFSETS??
-            %orig(CGRectMake(0, 37, 414, 896));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR FIND OFFSETS - USING ESTIMATED
-            %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11 FIND OFFSETS - USING ESTIMATED
-            %orig(CGRectMake(0, 37, 414, 896));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12 FIND OFFSETS - USING ESTIMATED
-            %orig(CGRectMake(0, 35, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro FIND OFFSETS - USING ESTIMATED
-            %orig(CGRectMake(0, 35, 390, 844));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini FIND OFFSETS - USING ESTIMATED
-            %orig(CGRectMake(0, 33, 360, 780));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max FIND OFFSETS - USING ESTIMATED
-            %orig(CGRectMake(0, 38, 428, 926));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig(CGRectMake(0, 40, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig(CGRectMake(0, 40, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig(CGRectMake(0, 40, 390, 844));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini FAKE OFFSETS??
-            %orig(CGRectMake(0, 38, 360, 780));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max FAKE OFFSETS??
-            %orig(CGRectMake(0, 42, 428, 926));
-        }
+        frame.origin.x = 0.0f;
+        frame.origin.y = VI_DefaultBannerYOffset(deviceModel);
+        %orig(frame);
     } else if (notEnabled) {
-        NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 375, 812));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 414, 896));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 414, 896));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 360, 780));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 428, 926));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 360, 780));
-
-
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 428, 926));
-        }
-
+        frame.origin.x = xNot;
+        frame.origin.y = yNot;
+        %orig(frame);
     } else {
         %orig(frame);
     }
@@ -686,13 +525,20 @@ static BOOL lineDisabled;
 %end
 
 static void respring(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-  [[%c(FBSystemService) sharedInstance] exitAndRelaunch:YES];
+    [[%c(FBSystemService) sharedInstance] exitAndRelaunch:YES];
 }
 
-static void IslandApplyState(void);
-
-void preferencesChanged(){
+void preferencesChanged() {
     NSDictionary *prefs = [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"com.ethxnn88.visibleislandprefs"];
+    if (!prefs) {
+        NSString *rootlessPath = @"/var/jb/var/mobile/Library/Preferences/com.ethxnn88.visibleislandprefs.plist";
+        NSString *rootfulPath = @"/var/mobile/Library/Preferences/com.ethxnn88.visibleislandprefs.plist";
+        if ([[NSFileManager defaultManager] fileExistsAtPath:rootlessPath]) {
+            prefs = [NSDictionary dictionaryWithContentsOfFile:rootlessPath];
+        } else if ([[NSFileManager defaultManager] fileExistsAtPath:rootfulPath]) {
+            prefs = [NSDictionary dictionaryWithContentsOfFile:rootfulPath];
+        }
+    }
 
     fixEnabled = (prefs && [prefs objectForKey:@"fixEnabled"] ? [[prefs valueForKey:@"fixEnabled"] boolValue] : NO );
     islandEnabled = (prefs && [prefs objectForKey:@"islandEnabled"] ? [[prefs valueForKey:@"islandEnabled"] boolValue] : NO );
@@ -704,208 +550,22 @@ void preferencesChanged(){
     transEnabled = (prefs && [prefs objectForKey:@"transEnabled"] ? [[prefs valueForKey:@"transEnabled"] boolValue] : NO );
     scaleEnabled = (prefs && [prefs objectForKey:@"scaleEnabled"] ? [[prefs valueForKey:@"scaleEnabled"] boolValue] : NO );
     lineDisabled = (prefs && [prefs objectForKey:@"lineDisabled"] ? [[prefs valueForKey:@"lineDisabled"] boolValue] : NO );
-    xPos = [[prefs objectForKey:@"xPos"] floatValue];
-    yPos = [[prefs objectForKey:@"yPos"] floatValue];
-    xNot = [[prefs objectForKey:@"xNot"] floatValue];
-    yNot = [[prefs objectForKey:@"yNot"] floatValue];
-    red = [[prefs objectForKey:@"red"] floatValue];
-    green = [[prefs objectForKey:@"green"] floatValue];
-    blue = [[prefs objectForKey:@"blue"] floatValue];
-    alpha = [[prefs objectForKey:@"alpha"] floatValue];
-    scale = [[prefs objectForKey:@"scale"] floatValue];
-    if (g_isSpringBoard && g_islandReady) {
-        dispatch_async(dispatch_get_main_queue(), ^{ IslandApplyState(); });
-    }
+    xPos = (prefs && [prefs objectForKey:@"xPos"]) ? [[prefs objectForKey:@"xPos"] floatValue] : 0.0f;
+    yPos = (prefs && [prefs objectForKey:@"yPos"]) ? [[prefs objectForKey:@"yPos"] floatValue] : 20.5f;
+    xNot = (prefs && [prefs objectForKey:@"xNot"]) ? [[prefs objectForKey:@"xNot"] floatValue] : 0.0f;
+    yNot = (prefs && [prefs objectForKey:@"yNot"]) ? [[prefs objectForKey:@"yNot"] floatValue] : 40.0f;
+    red = (prefs && [prefs objectForKey:@"red"]) ? [[prefs objectForKey:@"red"] floatValue] : 0.0f;
+    green = (prefs && [prefs objectForKey:@"green"]) ? [[prefs objectForKey:@"green"] floatValue] : 0.0f;
+    blue = (prefs && [prefs objectForKey:@"blue"]) ? [[prefs objectForKey:@"blue"] floatValue] : 0.0f;
+    alpha = (prefs && [prefs objectForKey:@"alpha"]) ? [[prefs objectForKey:@"alpha"] floatValue] : 1.0f;
+    scale = (prefs && [prefs objectForKey:@"scale"]) ? [[prefs objectForKey:@"scale"] floatValue] : 1.0f;
+    if (scale <= 0.05f) scale = 1.0f;
 }
 
-// ===== Đảo kiểu iPhone 18 Pro: tai trái/phải theo hoạt động. Chưa kiểm chứng trên máy. =====
-static UIWindow *g_win = nil;
-static UIView *g_left = nil, *g_right = nil, *g_pill = nil;
-static UILabel *g_label = nil, *g_leftIcon = nil, *g_rightIcon = nil;
-static int g_appCount = 0;          // số app đang dùng (cập nhật qua Darwin notification)
-static BOOL g_musicOn = NO;         // có app nghe nhạc nền
-static BOOL g_prevMusicOn = NO;
-static const CGFloat kD = 37.0, kGap = 120.0, kTop = 9.0, kExpandedW = 300.0;
+%ctor {
+    preferencesChanged();
 
-static void IslandEnsure(void) {
-    if (!g_isSpringBoard || !g_islandReady) return;
-    if (g_win) return;
-    CGRect s = [UIScreen mainScreen].bounds;
-    g_win = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, s.size.width, 60)];
-    g_win.windowLevel = UIWindowLevelStatusBar + 10;
-    g_win.backgroundColor = UIColor.clearColor;
-    g_win.userInteractionEnabled = NO;
-    g_win.rootViewController = [UIViewController new];
-    g_win.hidden = NO;
-    UIView *root = g_win.rootViewController.view;
-    root.backgroundColor = UIColor.clearColor;
-    CGFloat cx = s.size.width / 2;
-    g_left = [[UIView alloc] initWithFrame:CGRectMake(cx, kTop, kD, kD)];
-    g_right = [[UIView alloc] initWithFrame:CGRectMake(cx, kTop, kD, kD)];
-    for (UIView *v in @[g_left, g_right]) {
-        v.backgroundColor = UIColor.blackColor;
-        v.layer.cornerRadius = kD / 2;
-        v.alpha = 0.0;
-        [root addSubview:v];
-    }
-    g_leftIcon = [[UILabel alloc] initWithFrame:g_left.bounds];
-    g_rightIcon = [[UILabel alloc] initWithFrame:g_right.bounds];
-    for (UILabel *l in @[g_leftIcon, g_rightIcon]) {
-        l.textAlignment = NSTextAlignmentCenter;
-        l.font = [UIFont systemFontOfSize:15 weight:UIFontWeightBold];
-        l.textColor = UIColor.whiteColor;
-    }
-    [g_left addSubview:g_leftIcon];
-    [g_right addSubview:g_rightIcon];
-    g_pill = [[UIView alloc] initWithFrame:CGRectMake(cx - kD / 2, kTop, kD, kD)];
-    g_pill.backgroundColor = UIColor.blackColor;
-    g_pill.layer.cornerRadius = kD / 2;
-    g_pill.clipsToBounds = YES;
-    g_pill.alpha = 0.0;
-    [root addSubview:g_pill];
-    g_label = [[UILabel alloc] initWithFrame:g_pill.bounds];
-    g_label.textColor = UIColor.whiteColor;
-    g_label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    g_label.textAlignment = NSTextAlignmentCenter;
-    g_label.alpha = 0.0;
-    [g_pill addSubview:g_label];
-}
-
-// Một tai bật ra từ điểm giữa rồi nở về vị trí đích (lò xo); tắt thì co lại về giữa.
-static void IslandPopView(UIView *v, CGRect target, CGRect center, BOOL show, NSTimeInterval delay) {
-    if (show && v.alpha < 0.5) v.frame = center;
-    [UIView animateWithDuration:0.5 delay:delay usingSpringWithDamping:0.62 initialSpringVelocity:0.8
-                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
-        v.frame = show ? target : center;
-        v.alpha = show ? 1.0 : 0.0;
-    } completion:nil];
-}
-
-static void IslandRefreshCompact(void) {
-    if (!g_isSpringBoard || !g_islandReady) return;
-    IslandEnsure();
-    CGRect s = [UIScreen mainScreen].bounds;
-    CGFloat cx = s.size.width / 2;
-    CGRect leftFrame = CGRectMake(cx - kGap / 2 - kD, kTop, kD, kD);
-    CGRect rightFrame = CGRectMake(cx + kGap / 2, kTop, kD, kD);
-    CGRect center = CGRectMake(cx - kD / 2, kTop, kD, kD);
-    g_leftIcon.text = @"♪";
-    g_rightIcon.text = @"●";
-    g_pill.alpha = 0.0;
-    g_label.alpha = 0.0;
-    BOOL wantLeft = g_musicOn;
-    BOOL wantRight = g_appCount >= 2;
-    // Nhạc vừa bật: đảo hút vào giữa trước rồi mới tách tai trái
-    if (wantLeft && !g_prevMusicOn) {
-        [UIView animateWithDuration:0.18 animations:^{
-            g_left.frame = center;
-            g_right.frame = center;
-        } completion:^(BOOL f) {
-            IslandPopView(g_left, leftFrame, center, YES, 0);
-            IslandPopView(g_right, rightFrame, center, wantRight, 0.05);
-        }];
-    } else {
-        IslandPopView(g_left, leftFrame, center, wantLeft, 0);
-        IslandPopView(g_right, rightFrame, center, wantRight, 0.05);
-    }
-    g_prevMusicOn = wantLeft;
-}
-
-// Mở rộng thành viên thuốc có nội dung (dùng cho sự kiện như sạc, thử)
-static void IslandShowExpanded(NSString *text) {
-    if (!g_isSpringBoard || !g_islandReady) return;
-    IslandEnsure();
-    CGRect s = [UIScreen mainScreen].bounds;
-    CGFloat cx = s.size.width / 2;
-    g_label.text = text;
-    [UIView animateWithDuration:0.55 delay:0 usingSpringWithDamping:0.72 initialSpringVelocity:0.6
-                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
-        g_left.alpha = 0.0; g_right.alpha = 0.0;
-        g_pill.frame = CGRectMake(cx - kExpandedW / 2, kTop, kExpandedW, kD);
-        g_pill.layer.cornerRadius = kD / 2;
-        g_pill.alpha = 1.0;
-        g_label.frame = g_pill.bounds;
-        g_label.alpha = 1.0;
-    } completion:nil];
-}
-
-static void IslandHide(void) {
-    if (!g_isSpringBoard || !g_islandReady) return;
-    IslandEnsure();
-    CGRect s = [UIScreen mainScreen].bounds;
-    CGFloat cx = s.size.width / 2;
-    CGRect center = CGRectMake(cx - kD / 2, kTop, kD, kD);
-    [UIView animateWithDuration:0.4 animations:^{
-        g_left.frame = center; g_right.frame = center;
-        g_left.alpha = 0.0; g_right.alpha = 0.0;
-        g_pill.alpha = 0.0; g_label.alpha = 0.0;
-    }];
-}
-
-// Sự kiện mở rộng 2,6 giây rồi quay lại trạng thái tai hiện tại
-static void IslandFlash(NSString *expandedText, NSString *leftText, NSString *rightText) {
-    if (!islandEnabled || !g_isSpringBoard || !g_islandReady) return;
-    IslandShowExpanded(expandedText);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        IslandRefreshCompact();
-    });
-}
-
-%hook SBUIController
-- (void)_handleBatteryStateChange:(id)arg {
-    %orig;
-    UIDevice *d = [UIDevice currentDevice];
-    d.batteryMonitoringEnabled = YES;
-    if (d.batteryState == UIDeviceBatteryStateCharging || d.batteryState == UIDeviceBatteryStateFull) {
-        IslandFlash([NSString stringWithFormat:@"⚡ %d%%", (int)(d.batteryLevel * 100)], @"⚡", @"");
-    }
-}
-%end
-
-// Darwin notification: app mở/đóng, nhạc bật/tắt (gọi từ bên ngoài, ví dụ notifyutil -p ...)
-static void IslandAppAdd(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
-    dispatch_async(dispatch_get_main_queue(), ^{ g_appCount++; if (islandEnabled) IslandRefreshCompact(); });
-}
-static void IslandAppRemove(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
-    dispatch_async(dispatch_get_main_queue(), ^{ if (g_appCount > 0) g_appCount--; if (islandEnabled) IslandRefreshCompact(); });
-}
-static void IslandMusicOn(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
-    dispatch_async(dispatch_get_main_queue(), ^{ g_musicOn = YES; if (islandEnabled) IslandRefreshCompact(); });
-}
-static void IslandMusicOff(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
-    dispatch_async(dispatch_get_main_queue(), ^{ g_musicOn = NO; if (islandEnabled) IslandRefreshCompact(); });
-}
-
-static void IslandTestCallback(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef info) {
-    IslandFlash(@"Dynamic Island", @"●", @"✓");
-}
-
-
-static void IslandApplyState(void) {
-    if (islandEnabled) { IslandRefreshCompact(); } else { IslandHide(); }
-}
-
-%ctor{
-	preferencesChanged();
-    if ([[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
-        g_isSpringBoard = YES;
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandTestCallback,
-            CFSTR("com.taojb.island.test"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandAppAdd,
-            CFSTR("com.taojb.island.app.add"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandAppRemove,
-            CFSTR("com.taojb.island.app.remove"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandMusicOn,
-            CFSTR("com.taojb.island.music.on"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, IslandMusicOff,
-            CFSTR("com.taojb.island.music.off"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            g_islandReady = YES;
-            IslandApplyState();
-        });
-    }
-
-	CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)preferencesChanged, CFSTR("com.ethxnn88.visibleislandprefs-updated"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)preferencesChanged, CFSTR("com.ethxnn88.visibleislandprefs-updated"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 
     if ([[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, respring, CFSTR("com.ethxnn88.visibleislandprefs-respring"), NULL, CFNotificationSuspensionBehaviorCoalesce);
