@@ -8,6 +8,21 @@
 - (NSArray *)specifiers {
 	if (!_specifiers) {
 		_specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
+		if (_specifiers.count == 0) {
+			NSBundle *b = [NSBundle bundleForClass:[self class]];
+			NSMutableString *msg = [NSMutableString stringWithFormat:@"Bundle: %@\n", b.bundlePath];
+			NSArray *cands = @[@"Root.plist", @"Resources/Root.plist", @"VisibleIslandPrefs.bundle/Root.plist"];
+			for (NSString *c in cands) {
+				NSString *full = [b.bundlePath stringByAppendingPathComponent:c];
+				[msg appendFormat:@"%@ : %@\n", c, [[NSFileManager defaultManager] fileExistsAtPath:full] ? @"CÓ" : @"KHÔNG"]; 
+			}
+			[msg appendFormat:@"Thư mục bundle: %@", [[NSFileManager defaultManager] contentsOfDirectoryAtPath:b.bundlePath error:nil]];
+			dispatch_async(dispatch_get_main_queue(), ^{
+				UIAlertController *a = [UIAlertController alertControllerWithTitle:@"[VIS] Không nạp được Root" message:msg preferredStyle:UIAlertControllerStyleAlert];
+				[a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+				[self presentViewController:a animated:YES completion:nil];
+			});
+		}
 	}
 
 	return _specifiers;
@@ -181,7 +196,7 @@
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
     if (section == [tableView numberOfSections] - 1) {
         return 50;
-    } if (section == [tableView numberOfSections] - 5) {
+    } else if (section == [tableView numberOfSections] - 5) {
         return 45;
     } else {
         return 0;
