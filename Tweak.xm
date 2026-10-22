@@ -338,9 +338,9 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 static CADisplayLink *s_vi_displayLink = nil;
 static CGFloat        s_vi_progress = 0.0f;        // 0 = hút vào island, 1 = tách hoàn toàn
 static CGFloat        s_vi_targetProgress = 0.0f;
-static CGRect         s_vi_fromRect = {0};
-static CGRect         s_vi_toRect = {0};
-static CGRect         s_vi_mainRect = {0};
+static CGRect         s_vi_fromRect = CGRectZero;
+static CGRect         s_vi_toRect = CGRectZero;
+static CGRect         s_vi_mainRect = CGRectZero;
 static UIView        *s_vi_bubble = nil;
 static CAShapeLayer  *s_vi_bridgeLayer = nil;
 static UIView        *s_vi_hostView = nil;
