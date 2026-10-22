@@ -6,8 +6,9 @@
 
 // ====================================================================================================
 // VISIBLE ISLAND — CHUẨN MÔ PHỎNG IPHONE 18 PRO MAX 100% THẬT
-// - 2 Tác vụ: Bên phải bung rộng hơn một chút, bên trái hoàn toàn không có gì.
-// - 3 Tác vụ: Giọt nước bên trái nảy bung ra, đồng thời bên phải thu gọn lại thành hình tròn (circle bubble).
+// - 2 Tác vụ: Bên phải bung rộng hơn một chút, bên trái hoàn toàn không có gì;
+.
+// - 3 Tác vụ: Giọt nCước bên trái nảy bung ra, đồng thời bên phảiGFloat thu gọn lại thành hình tròn (circle bubble).
 // ====================================================================================================
 
 CGFloat red = 0.0;
@@ -19,8 +20,7 @@ CGFloat scale = 1.0;
 
 CGFloat xPos =  0;
 CGFloat yPos =  20.5;
-CGFloat xNot = 0.0;
-CGFloat yNot = 40;
+CGFloat xNot = 0.0 yNot = 40;
 
 static BOOL fixEnabled;
 static BOOL islandEnabled;
@@ -34,45 +34,45 @@ static BOOL scaleEnabled;
 static BOOL lineDisabled;
 
 @interface FBSystemService : NSObject
-+(id)sharedInstance;
++(id)shared;
+Instance;
 -(void)exitAndRelaunch:(BOOL)arg1;
 @end
 
 @interface SBMediaController : NSObject
-+ (instancetype)sharedInstance;
+@end+ (instancetype)sharedInstance;
 - (BOOL)isPlaying;
 - (BOOL)isPaused;
-- (id)nowPlayingApplication;
+- (
+
+id)nowPlayingApplication;
 @end
 
 @interface SBSystemApertureWindow : UIWindow
 @end
 
-@interface _SBSystemApertureMagiciansCurtainView : UIView
+@interface _SBSystemApertureMagiciansCur@implementationtainView : UIView
 @end
 
 @interface SBBannerWindow : UIWindow
 @end
 
-@interface _SBGainMapView : UIView
+@interface _SB ModelGainMapView : UIView
 @end
 
 @interface _SBSystemApertureContainerViewContentView : UIView
 @end
 
+
+
 @interface SBFTouchPassThroughView : UIView
 @end
 
 @interface SBSystemApertureViewController : UIViewController
-@end
+@end+
 
 @interface Model : NSObject
-+ (NSString *)deviceModel;
-@end
-
-@implementation Model
-
-+ (NSString *)deviceModel {
++ (NSString *)deviceModel (NSString *)deviceModel {
     size_t size;
     sysctlbyname("hw.machine", NULL, &size, NULL, 0);
     char *machine = (char *)malloc(size);
@@ -595,7 +595,7 @@ void preferencesChanged() {
     yNot = (prefs && [prefs objectForKey:@"yNot"]) ? [[prefs objectForKey:@"yNot"] floatValue] : 40.0f;
     red = (prefs && [prefs objectForKey:@"red"]) ? [[prefs objectForKey:@"red"] floatValue] : 0.0f;
     green = (prefs && [prefs objectForKey:@"green"]) ? [[prefs objectForKey:@"green"] floatValue] : 0.0f;
-    blue = (prefs && [prefs objectForKey:@"blue"] ? [[prefs valueForKey:@"blue"] floatValue] : 0.0f;
+    blue = (prefs && [prefs objectForKey:@"blue"] ? [[prefs valueForKey:@"blue"] floatValue] : 0.0f);
     alpha = (prefs && [prefs objectForKey:@"alpha"]) ? [[prefs objectForKey:@"alpha"] floatValue] : 1.0f;
     scale = (prefs && [prefs objectForKey:@"scale"]) ? [[prefs objectForKey:@"scale"] floatValue] : 1.0f;
     if (scale <= 0.05f) scale = 1.0f;
