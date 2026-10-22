@@ -88,6 +88,31 @@ static BOOL lineDisabled;
 
 @end
 
+// [FIX V2]: Tương tác cho giọt nước bên trái — tap vào bubble sẽ có hiệu ứng pulse
+@interface UIView (VisibleIslandBubbleTap)
+- (void)vi_handleBubbleTap:(UITapGestureRecognizer *)tap;
+@end
+@implementation UIView (VisibleIslandBubbleTap)
+- (void)vi_handleBubbleTap:(UITapGestureRecognizer *)tap {
+    @try {
+        UIView *bubble = tap.view;
+        if (!bubble) return;
+        [UIView animateWithDuration:0.12 animations:^{
+            bubble.transform = CGAffineTransformMakeScale(1.28f, 1.28f);
+        } completion:^(BOOL finished) {
+            [UIView animateWithDuration:0.20
+                                  delay:0.0
+                 usingSpringWithDamping:0.55f
+                  initialSpringVelocity:0.8f
+                                options:UIViewAnimationOptionAllowUserInteraction
+                             animations:^{
+                bubble.transform = CGAffineTransformIdentity;
+            } completion:nil];
+        }];
+    } @catch (__unused NSException *e) {}
+}
+@end
+
 // ====================================================================================================
 // BỘ ĐIỀU KHIỂN HIỆU ỨNG 18 PRO MAX CHUẨN XÁC (3 TÁC VỤ: TRÁI NẢY - PHẢI THU TRÒN)
 // ====================================================================================================
@@ -311,6 +336,8 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 - (void)layoutSubviews {
     %orig;
 
+    self.clipsToBounds = NO; // [FIX V2]: cho phép bubble/metaball hiển thị ngoài bounds (nguyên nhân chính làm giọt nước trái vô hình)
+
     if (transEnabled) {
         if (self.subviews.count == 4) {
             UIView *targetSubview = self.subviews[2];
@@ -398,6 +425,9 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
             }
             g_leftTripleBubble.clipsToBounds = YES;
             g_leftTripleBubble.alpha = 0.0f;
+            g_leftTripleBubble.userInteractionEnabled = YES; // [FIX V2]: bật tương tác cho bubble
+            UITapGestureRecognizer *vi_bubbleTap = [[UITapGestureRecognizer alloc] initWithTarget:g_leftTripleBubble action:@selector(vi_handleBubbleTap:)];
+            [g_leftTripleBubble addGestureRecognizer:vi_bubbleTap];
 
             UIView *innerDot = [[UIView alloc] initWithFrame:CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f)];
             innerDot.backgroundColor = [UIColor systemGreenColor];
@@ -406,9 +436,13 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
             [g_leftTripleBubble addSubview:innerDot];
         }
 
-        if (g_leftTripleBubble.superview != (UIView *)self) { // [FIX]: cast tránh -Wcompare-distinct-pointer-types (-Werror)
-            [self addSubview:g_leftTripleBubble];
+        // [FIX V2]: thêm bubble vào superview (không phải self) để không bị cắt xén khi nằm bên trái ngoài bounds
+        UIView *vi_bubbleParent = self.superview ?: self;
+        if (g_leftTripleBubble.superview != vi_bubbleParent) {
+            [g_leftTripleBubble removeFromSuperview];
+            [vi_bubbleParent addSubview:g_leftTripleBubble];
         }
+        [vi_bubbleParent bringSubviewToFront:g_leftTripleBubble];
 
         g_leftTripleBubble.layer.cornerRadius = bubbleSize / 2.0f;
         UIView *dot = [g_leftTripleBubble viewWithTag:1902];
