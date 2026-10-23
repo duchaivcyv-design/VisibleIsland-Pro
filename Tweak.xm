@@ -3,8 +3,10 @@
 #import <QuartzCore/QuartzCore.h>
 #import <sys/sysctl.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <math.h>
 #import <cmath>
+#import <dlfcn.h>
 
 CGFloat red = 0.0;
 CGFloat green = 0.0;
@@ -26,6 +28,11 @@ static BOOL colorEnabled;
 static BOOL transEnabled;
 static BOOL scaleEnabled;
 static BOOL lineDisabled;
+static BOOL spoofEnabled;
+static BOOL hapticsEnabled;
+
+static NSString *g_spoofModel = nil;
+static NSString *g_spoofOSVersion = nil;
 
 @interface FBSystemService : NSObject
 +(id)sharedInstance;
@@ -37,6 +44,15 @@ static BOOL lineDisabled;
 - (BOOL)isPlaying;
 - (BOOL)isPaused;
 - (id)nowPlayingApplication;
+@end
+
+@interface SBSApplicationLaunchService : NSObject
++ (instancetype)sharedInstance;
+- (void)activateApplicationWithBundleIdentifier:(id)arg1
+                                        context:(id)arg2
+                                        options:(id)arg3
+                                 withIdentifier:(id)arg4
+                                     completion:(id)arg5;
 @end
 
 @interface SBSystemApertureWindow : UIWindow @end
@@ -69,6 +85,67 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================
+//  SPOOF THẬT — hook sysctl hw.machine + UIDevice systemVersion
+// ============================================================
+
+%hookf(int, sysctlbyname, const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+    int r = %orig;
+    if (spoofEnabled && g_spoofModel && r == 0 && oldp && oldlenp) {
+        if (strcmp(name, "hw.machine") == 0 || strcmp(name, "hw.model") == 0) {
+            const char *spoof = [g_spoofModel UTF8String];
+            size_t len = strlen(spoof) + 1;
+            if (*oldlenp >= len) {
+                strlcpy((char *)oldp, spoof, len);
+                *oldlenp = len;
+            }
+        }
+    }
+    return r;
+}
+
+%hook UIDevice
+- (NSString *)systemVersion {
+    if (spoofEnabled && g_spoofOSVersion) return g_spoofOSVersion;
+    return %orig;
+}
+%end
+
+// ============================================================
+//  HAPTIC — Taptic Engine thật của máy
+// ============================================================
+
+static void VI_HapticLight(void) {
+    if (!hapticsEnabled) return;
+    @try {
+        Class genCls = objc_getClass("UISelectionFeedbackGenerator");
+        if (genCls) {
+            id gen = [[genCls alloc] init];
+            ((void (*)(id, SEL))objc_msgSend)(gen, @selector(selectionChanged));
+        }
+    } @catch (NSException *e) { }
+}
+static void VI_HapticMedium(void) {
+    if (!hapticsEnabled) return;
+    @try {
+        Class genCls = objc_getClass("UIImpactFeedbackGenerator");
+        if (genCls) {
+            id gen = [[genCls alloc] initWithStyle:(UIImpactFeedbackStyleMedium)];
+            ((void (*)(id, SEL))objc_msgSend)(gen, @selector(impactOccurred));
+        }
+    } @catch (NSException *e) { }
+}
+static void VI_HapticHeavy(void) {
+    if (!hapticsEnabled) return;
+    @try {
+        Class genCls = objc_getClass("UIImpactFeedbackGenerator");
+        if (genCls) {
+            id gen = [[genCls alloc] initWithStyle:(UIImpactFeedbackStyleHeavy)];
+            ((void (*)(id, SEL))objc_msgSend)(gen, @selector(impactOccurred));
+        }
+    } @catch (NSException *e) { }
+}
+
+// ============================================================
 //  TRẠNG THÁI
 // ============================================================
 
@@ -79,7 +156,8 @@ static CGRect s_vi_mainRect;
 static BOOL s_vi_bubbleVisible = NO;
 static BOOL s_vi_bubbleManuallyDismissed = NO;
 static BOOL s_vi_targetIsFullPop = NO;
-static NSString *s_thirdAppDisplayID = nil;   // app thứ 3 đang chạy (để lấy icon)
+static NSString *s_thirdAppDisplayID = nil;
+static NSTimeInterval s_lastActivityCheck = 0;
 
 static inline BOOL VI_IsLandscapeOrientation(void) {
     UIInterfaceOrientation orient = UIInterfaceOrientationPortrait;
@@ -94,33 +172,211 @@ static inline BOOL VI_IsLandscapeOrientation(void) {
 }
 
 // ============================================================
-//  LẤY ICON APP THỨ 3 TỪ SPRINGBOARD
+//  INTROSPECTION ENGINE — dò tầng thật SystemAperture của iOS đang chạy
+// ============================================================
+
+static NSMutableArray<NSString *> *g_apertureSelectorLog = nil;
+static NSMutableArray<NSString *> *g_expansionSelectors = nil;
+static BOOL g_introspectionDone = NO;
+
+static void VI_IntrospectApertureLayer(void) {
+    if (g_introspectionDone) return;
+    g_introspectionDone = YES;
+    g_apertureSelectorLog = [NSMutableArray array];
+    g_expansionSelectors  = [NSMutableArray array];
+
+    unsigned int classCount = 0;
+    Class *classes = objc_copyClassList(&classCount);
+    if (!classes) return;
+
+    for (unsigned int i = 0; i < classCount; i++) {
+        Class cls = classes[i];
+        NSString *name = NSStringFromClass(cls);
+        if (![name containsString:@"SystemAperture"]) continue;
+
+        BOOL interesting = ([name containsString:@"Manager"] ||
+                            [name containsString:@"Controller"] ||
+                            [name containsString:@"Element"] ||
+                            [name containsString:@"Coordinator"]);
+        if (!interesting) continue;
+
+        unsigned int methodCount = 0;
+        Method *methods = class_copyMethodList(object_getClass(cls), &methodCount);
+        for (unsigned int m = 0; m < methodCount; m++) {
+            SEL sel = method_getName(methods[m]);
+            NSString *selName = NSStringFromSelector(sel);
+            [g_apertureSelectorLog addObject:[NSString stringWithFormat:@"+[%@ %@]", name, selName]];
+            if ([selName containsString:@"xpand"] ||
+                [selName containsString:@"resent"] ||
+                [selName containsString:@"ctivate"] ||
+                [selName containsString:@"howContent"]) {
+                [g_expansionSelectors addObject:[NSString stringWithFormat:@"%@|+|%@", name, selName]];
+            }
+        }
+        free(methods);
+
+        methods = class_copyMethodList(cls, &methodCount);
+        for (unsigned int m = 0; m < methodCount; m++) {
+            SEL sel = method_getName(methods[m]);
+            NSString *selName = NSStringFromSelector(sel);
+            [g_apertureSelectorLog addObject:[NSString stringWithFormat:@"-[%@ %@]", name, selName]];
+            if ([selName containsString:@"xpand"] ||
+                [selName containsString:@"resent"] ||
+                [selName containsString:@"ctivit"] ||
+                [selName containsString:@"plit"] ||
+                [selName containsString:@"ontentFor"]) {
+                [g_expansionSelectors addObject:[NSString stringWithFormat:@"%@|-|%@", name, selName]];
+            }
+        }
+        free(methods);
+    }
+    free(classes);
+
+    NSString *logPath = @"/var/mobile/Library/Preferences/com.ethxnn88.visibleisland-aperture-dump.txt";
+    NSString *content = [g_apertureSelectorLog componentsJoinedByString:@"\n"];
+    [content writeToFile:logPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+
+static BOOL VI_InvokeDiscoveredSelector(NSString *entry) {
+    if (!entry) return NO;
+    NSArray *parts = [entry componentsSeparatedByString:@"|"];
+    if (parts.count < 3) return NO;
+    NSString *clsName = parts[0];
+    NSString *typeMark = parts[1];
+    NSString *selName = parts[2];
+
+    @try {
+        Class cls = objc_getClass([clsName UTF8String]);
+        if (!cls) return NO;
+        SEL sel = NSSelectorFromString(selName);
+
+        if ([typeMark isEqualToString:@"+"]) {
+            if ([cls respondsToSelector:@selector(sharedInstance)]) {
+                id inst = ((id (*)(id, SEL))objc_msgSend)((id)cls, @selector(sharedInstance));
+                if (inst && [inst respondsToSelector:sel]) {
+                    if ([selName hasSuffix:@":"]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(inst, sel, nil);
+                    } else {
+                        ((void (*)(id, SEL))objc_msgSend)(inst, sel);
+                    }
+                    return YES;
+                }
+            } else if ([cls respondsToSelector:sel]) {
+                ((void (*)(id, SEL))objc_msgSend)((id)cls, sel);
+                return YES;
+            }
+            return NO;
+        }
+        if ([cls respondsToSelector:@selector(sharedInstance)]) {
+            id inst = ((id (*)(id, SEL))objc_msgSend)((id)cls, @selector(sharedInstance));
+            if (inst && [inst respondsToSelector:sel]) {
+                if ([selName hasSuffix:@":"]) {
+                    ((void (*)(id, SEL, id))objc_msgSend)(inst, sel, nil);
+                } else {
+                    ((void (*)(id, SEL))objc_msgSend)(inst, sel);
+                }
+                return YES;
+            }
+        }
+    } @catch (NSException *e) { }
+    return NO;
+}
+
+// ============================================================
+//  ÉP TẦNG THẬT — nở island thật + mở app thứ 3 full màn hình
+// ============================================================
+
+static void VI_ExpandRealIslandForActivity(void) {
+    for (NSString *entry in g_expansionSelectors) {
+        if (VI_InvokeDiscoveredSelector(entry)) return;
+    }
+    @try {
+        Class mgrCls = objc_getClass("SBSystemApertureManager");
+        if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
+            id mgr = ((id (*)(id, SEL))objc_msgSend)((id)mgrCls, @selector(sharedInstance));
+            if (mgr) {
+                NSArray<NSString *> *fallbacks = @[
+                    @"presentExpandedSystemApertureContentForRequest:",
+                    @"_presentExpandedSystemApertureContent",
+                ];
+                for (NSString *name in fallbacks) {
+                    SEL sel = NSSelectorFromString(name);
+                    if ([mgr respondsToSelector:sel]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(mgr, sel, nil);
+                        return;
+                    }
+                }
+            }
+        }
+        Class vcCls = objc_getClass("SBSystemApertureViewController");
+        if (vcCls && [vcCls respondsToSelector:@selector(sharedInstance)]) {
+            id vc = ((id (*)(id, SEL))objc_msgSend)((id)vcCls, @selector(sharedInstance));
+            if (vc && [vc respondsToSelector:@selector(_expandSystemApertureAnimated:)]) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(vc, @selector(_expandSystemApertureAnimated:), YES);
+            }
+        }
+    } @catch (NSException *e) { }
+}
+
+static void VI_OpenThirdApp(void) {
+    if (!s_thirdAppDisplayID || s_thirdAppDisplayID.length == 0) return;
+    if ([s_thirdAppDisplayID isEqualToString:@"com.apple.screenrecording"]) return;
+    @try {
+        Class lsCls = objc_getClass("SBSApplicationLaunchService");
+        if (lsCls && [lsCls respondsToSelector:@selector(sharedInstance)]) {
+            id ls = ((id (*)(id, SEL))objc_msgSend)((id)lsCls, @selector(sharedInstance));
+            if (ls && [ls respondsToSelector:@selector(activateApplicationWithBundleIdentifier:context:options:withIdentifier:completion:)]) {
+                ((void (*)(id, SEL, id, id, id, id, id))objc_msgSend)(
+                    ls, @selector(activateApplicationWithBundleIdentifier:context:options:withIdentifier:completion:),
+                    s_thirdAppDisplayID, nil, nil, nil, nil);
+                return;
+            }
+        }
+        id app = [[UIApplication sharedApplication] performSelector:NSSelectorFromString(@"_launchApplicationWithIdentifier:") withObject:s_thirdAppDisplayID];
+        (void)app;
+    } @catch (NSException *e) { }
+}
+
+// ============================================================
+//  ICON THẬT của app thứ 3
 // ============================================================
 
 static UIImage *VI_IconForDisplayID(NSString *bid) {
     if (!bid || bid.length == 0) return nil;
+    if ([bid isEqualToString:@"com.apple.screenrecording"]) return nil;
     CGFloat sc = [UIScreen mainScreen].scale;
     UIImage *img = nil;
-    Class icc = objc_getClass("SBIconController");
-    if (icc && [icc respondsToSelector:@selector(sharedInstance)]) {
-        id ic = [icc sharedInstance];
-        id model = nil;
-        if ([ic respondsToSelector:@selector(iconModel)]) model = [ic iconModel];
-        if (model && [model respondsToSelector:@selector(iconForDisplayIdentifier:)]) {
-            id icon = [model iconForDisplayIdentifier:bid];
-            if (icon) {
-                if ([icon respondsToSelector:@selector(snapshotImageForScale:)]) {
-                    img = [icon snapshotImageForScale:sc];
-                }
-                if (!img && [icon respondsToSelector:@selector(generateIconImageWithScale:)]) {
-                    img = [icon generateIconImageWithScale:sc];
-                }
-                if (!img && [icon respondsToSelector:@selector(iconImage)]) {
-                    img = [icon iconImage];
+    @try {
+        Class icc = objc_getClass("SBIconController");
+        if (icc && [icc respondsToSelector:@selector(sharedInstance)]) {
+            id ic = ((id (*)(id, SEL))objc_msgSend)((id)icc, @selector(sharedInstance));
+            id model = nil;
+            if (ic && [ic respondsToSelector:@selector(iconModel)]) model = [ic iconModel];
+            if (model && [model respondsToSelector:@selector(iconForDisplayIdentifier:)]) {
+                id icon = [model iconForDisplayIdentifier:bid];
+                if (icon) {
+                    if ([icon respondsToSelector:@selector(snapshotImageForScale:)]) {
+                        img = ((UIImage *(*)(id, SEL, CGFloat))objc_msgSend)(icon, @selector(snapshotImageForScale:), sc);
+                    }
+                    if (!img && [icon respondsToSelector:@selector(iconImage)]) {
+                        img = [icon iconImage];
+                    }
                 }
             }
         }
-    }
+        if (!img) {
+            Class lsawCls = objc_getClass("LSApplicationWorkspace");
+            if (lsawCls && [lsawCls respondsToSelector:@selector(defaultWorkspace)]) {
+                id ws = ((id (*)(id, SEL))objc_msgSend)((id)lsawCls, @selector(defaultWorkspace));
+                if (ws && [ws respondsToSelector:@selector(appForBundleIdentifier:)]) {
+                    id app = [ws appForBundleIdentifier:bid];
+                    if (app && [app respondsToSelector:@selector(icon)]) {
+                        img = [app icon];
+                    }
+                }
+            }
+        }
+    } @catch (NSException *e) { return nil; }
     return img;
 }
 
@@ -180,7 +436,7 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
 }
 
 // ============================================================
-//  SPRING DRIVER — nảy thật, cho phép overshoot (vọt qua đích rồi hút lại)
+//  SPRING DRIVER — nảy thật, overshoot, 120Hz, fail-safe
 // ============================================================
 
 @interface VI_SpringDriver : NSObject
@@ -196,7 +452,7 @@ static void VI_DrawMetaballBridge(CGRect mainRect, CGRect bubbleRect, CGFloat pr
 
 static VI_SpringDriver *g_springDriver = nil;
 
-static const CGFloat kSpringDamping   = 0.55f;  // thấp hơn → nảy rõ 1-2 nhịp
+static const CGFloat kSpringDamping   = 0.55f;
 static const CGFloat kSpringStiffness = 170.0f;
 static const CGFloat kSpringMass      = 1.0f;
 
@@ -211,7 +467,6 @@ static const CGFloat kSpringMass      = 1.0f;
     CGRect leftRect = CGRectMake(CGRectGetMinX(s_vi_mainRect) - bubbleSize - gap,
                                  s_vi_mainRect.origin.y,
                                  bubbleSize, bubbleSize);
-    // KHÔNG clamp t → cho phép overshoot (nảy vọt qua rồi hút lại, giống iPhone)
     return CGRectMake(centerRect.origin.x + (leftRect.origin.x - centerRect.origin.x) * t,
                       centerRect.origin.y + (leftRect.origin.y - centerRect.origin.y) * t,
                       centerRect.size.width  + (leftRect.size.width  - centerRect.size.width) * t,
@@ -227,13 +482,12 @@ static const CGFloat kSpringMass      = 1.0f;
     self.velocity += force * dt / kSpringMass;
     self.position += self.velocity * dt;
 
-    CGFloat t = self.position;                       // rect: cho overshoot
-    CGFloat ta = fmax(0.0, fmin(1.0, t));            // alpha: clamp
+    CGFloat t = self.position;
+    CGFloat ta = fmax(0.0, fmin(1.0, t));
     CGRect cur = [self currentTargetRectFor:t];
     if (g_leftTripleBubble) {
         g_leftTripleBubble.hidden = NO;
         g_leftTripleBubble.frame = cur;
-        // Squash & stretch theo tốc độ — chất lỏng
         CGFloat stretch = 1.0 + fmin(0.12, fabs(self.velocity) * 0.04);
         g_leftTripleBubble.transform = CGAffineTransformMakeScale((CGFloat)stretch, (CGFloat)(2.0 - stretch));
         g_leftTripleBubble.alpha = (CGFloat)ta;
@@ -296,32 +550,52 @@ static void VI_SetBubbleTarget(CGFloat target, CGFloat velocityKick) {
 }
 
 // ============================================================
-//  BUBBLE — giọt nước bên trái chứa ICON app thứ 3
+//  BUBBLE — giọt trái với icon thật + haptic + bóng đổ
 // ============================================================
 
 @interface UIView_VIHelper : UIView
+- (CGRect)expandedFrameKeepingCenter:(CGFloat)factor;
 @end
 @implementation UIView_VIHelper
+- (CGRect)expandedFrameKeepingCenter:(CGFloat)factor {
+    CGRect f = self.frame;
+    CGFloat newW = f.size.width * factor;
+    CGFloat newH = f.size.height * factor;
+    return CGRectMake(CGRectGetMidX(f) - newW / 2.0f,
+                      CGRectGetMidY(f) - newH / 2.0f,
+                      newW, newH);
+}
 - (void)vi_handleTap:(UITapGestureRecognizer *)gr {
     if (!g_leftTripleBubble || !s_vi_bubbleVisible) return;
-    s_vi_bubbleManuallyDismissed = YES;
-    s_vi_bubbleVisible = NO;
-    [UIView animateWithDuration:0.10 animations:^{
-        g_leftTripleBubble.transform = CGAffineTransformMakeScale(0.85f, 1.10f);
+    VI_HapticLight();
+    [UIView animateWithDuration:0.12 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        g_leftTripleBubble.frame = [self expandedFrameKeepingCenter:0.88f];
     } completion:^(BOOL finished) {
-        g_leftTripleBubble.transform = CGAffineTransformIdentity;
-        VI_SetBubbleTarget(0.0f, -2.5f);
+        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:4 options:0 animations:^{
+            g_leftTripleBubble.frame = [self expandedFrameKeepingCenter:1.0f];
+        } completion:^(BOOL done) {
+            VI_OpenThirdApp();
+        }];
     }];
 }
 - (void)vi_handleLongPress:(UILongPressGestureRecognizer *)gr {
     if (!g_leftTripleBubble || !s_vi_bubbleVisible) return;
     if (gr.state == UIGestureRecognizerStateBegan) {
-        [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:4 options:0 animations:^{
-            g_leftTripleBubble.transform = CGAffineTransformMakeScale(1.14f, 0.92f);
+        VI_HapticHeavy();
+        [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.55 initialSpringVelocity:3 options:0 animations:^{
+            g_leftTripleBubble.frame = [self expandedFrameKeepingCenter:1.35f];
+            g_leftTripleBubble.layer.cornerRadius = g_leftTripleBubble.frame.size.width / 2.0f;
+            UIView *iv = [self viewWithTag:1903];
+            if (iv) iv.frame = CGRectMake(3.0f, 3.0f, self.frame.size.width - 6.0f, self.frame.size.height - 6.0f);
         } completion:nil];
+        VI_ExpandRealIslandForActivity();
     } else if (gr.state == UIGestureRecognizerStateEnded || gr.state == UIGestureRecognizerStateCancelled) {
-        [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:4 options:0 animations:^{
-            g_leftTripleBubble.transform = CGAffineTransformIdentity;
+        VI_HapticMedium();
+        [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.55 initialSpringVelocity:3 options:0 animations:^{
+            g_leftTripleBubble.frame = [self expandedFrameKeepingCenter:1.0f];
+            g_leftTripleBubble.layer.cornerRadius = g_leftTripleBubble.frame.size.width / 2.0f;
+            UIView *iv = [self viewWithTag:1903];
+            if (iv) iv.frame = CGRectMake(3.0f, 3.0f, self.frame.size.width - 6.0f, self.frame.size.height - 6.0f);
         } completion:nil];
     }
 }
@@ -340,27 +614,43 @@ static void VI_PrepareBubbleIfNeeded(CGRect mainRect, UIView *containerView) {
         g_leftTripleBubble.layer.cornerCurve = kCACornerCurveContinuous;
     }
     g_leftTripleBubble.layer.cornerRadius = bubbleSize / 2.0f;
-    g_leftTripleBubble.clipsToBounds = YES;
+    g_leftTripleBubble.clipsToBounds = NO;
     g_leftTripleBubble.alpha = 0.0f;
     g_leftTripleBubble.hidden = YES;
     g_leftTripleBubble.userInteractionEnabled = YES;
 
-    // ICON app thứ 3 — cao hơn tất cả, chiếm gần hết giọt nước
+    // Bóng đổ như island thật — đổ xuống nhẹ, mềm
+    g_leftTripleBubble.layer.shadowColor = [UIColor blackColor].CGColor;
+    g_leftTripleBubble.layer.shadowOpacity = 0.25f;
+    g_leftTripleBubble.layer.shadowRadius = 6.0f;
+    g_leftTripleBubble.layer.shadowOffset = CGSizeMake(0, 2.0f);
+
+    // Lớp clips nội dung riêng (icon nằm trong lớp clips)
+    UIView *clipBox = [[UIView alloc] initWithFrame:CGRectMake(0, 0, bubbleSize, bubbleSize)];
+    clipBox.backgroundColor = [UIColor clearColor];
+    clipBox.layer.cornerRadius = bubbleSize / 2.0f;
+    if (@available(iOS 13.0, *)) {
+        clipBox.layer.cornerCurve = kCACornerCurveContinuous;
+    }
+    clipBox.clipsToBounds = YES;
+    clipBox.tag = 1904;
+    clipBox.userInteractionEnabled = NO;
+    [g_leftTripleBubble addSubview:clipBox];
+
     UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(3.0f, 3.0f, bubbleSize - 6.0f, bubbleSize - 6.0f)];
     iconView.contentMode = UIViewContentModeScaleAspectFit;
     iconView.layer.cornerRadius = (bubbleSize - 6.0f) / 2.5f;
     iconView.layer.masksToBounds = YES;
     iconView.tag = 1903;
     iconView.hidden = YES;
-    [g_leftTripleBubble addSubview:iconView];
+    [clipBox addSubview:iconView];
 
-    // Chấm xanh fallback — chỉ hiện khi không lấy được icon
     UIView *innerDot = [[UIView alloc] initWithFrame:CGRectMake(6.0f, 6.0f, bubbleSize - 12.0f, bubbleSize - 12.0f)];
     innerDot.backgroundColor = [UIColor systemGreenColor];
     innerDot.layer.cornerRadius = (bubbleSize - 12.0f) / 2.0f;
     innerDot.tag = 1902;
     innerDot.hidden = YES;
-    [g_leftTripleBubble addSubview:innerDot];
+    [clipBox addSubview:innerDot];
 
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:g_leftTripleBubble action:@selector(vi_handleTap:)];
     [g_leftTripleBubble addGestureRecognizer:tap];
@@ -389,7 +679,6 @@ static void VI_ShowBubble(CGRect mainRect, UIView *containerView, BOOL fullPop) 
         s_vi_targetIsFullPop = fullPop;
         g_leftTripleBubble.hidden = NO;
 
-        // ==== Set ICON của app thứ 3 (fallback chấm xanh) ====
         UIView *dot = [g_leftTripleBubble viewWithTag:1902];
         UIView *iconView = [g_leftTripleBubble viewWithTag:1903];
         UIImage *icon = VI_IconForDisplayID(s_thirdAppDisplayID);
@@ -398,13 +687,34 @@ static void VI_ShowBubble(CGRect mainRect, UIView *containerView, BOOL fullPop) 
             iv.image = icon;
             iv.hidden = (icon == nil);
         }
-        if (dot) dot.hidden = (icon != nil);   // có icon thì ẩn chấm xanh
+        if (dot) dot.hidden = (icon != nil);
+
+        CGFloat sizeBonus = 1.0f;
+        if (s_thirdAppDisplayID) {
+            if ([s_thirdAppDisplayID containsString:@"music"] ||
+                [s_thirdAppDisplayID containsString:@"spotify"] ||
+                [s_thirdAppDisplayID containsString:@"youtube"]) {
+                sizeBonus = 1.12f;
+            }
+        }
+        CGFloat bubbleSize = s_vi_mainRect.size.height * sizeBonus;
+        if (bubbleSize < 28.0f) bubbleSize = 35.0f * sizeBonus;
+        g_leftTripleBubble.frame = CGRectMake(g_leftTripleBubble.frame.origin.x,
+                                              g_leftTripleBubble.frame.origin.y,
+                                              bubbleSize, bubbleSize);
+        g_leftTripleBubble.layer.cornerRadius = bubbleSize / 2.0f;
+        UIView *clip = [g_leftTripleBubble viewWithTag:1904];
+        clip.frame = CGRectMake(0, 0, bubbleSize, bubbleSize);
+        clip.layer.cornerRadius = bubbleSize / 2.0f;
+        UIView *iv = [g_leftTripleBubble viewWithTag:1903];
+        iv.frame = CGRectMake(3.0f, 3.0f, bubbleSize - 6.0f, bubbleSize - 6.0f);
 
         if (g_springDriver.position < 0.05f) {
             g_springDriver.position = 0.0f;
             g_springDriver.velocity = 0.0f;
             g_leftTripleBubble.alpha = 0.0f;
         }
+        VI_HapticMedium();  // rung nhẹ khi giọt nổ ra
         VI_SetBubbleTarget(1.0f, fullPop ? 4.5f : 3.5f);
     });
 }
@@ -448,7 +758,7 @@ static inline CGFloat VI_DefaultBannerYOffset(NSString *deviceModel) {
 }
 
 // ============================================================
-//  ĐẾM HOẠT ĐỘNG + XÁC ĐỊNH APP THỨ 3
+//  ĐẾM HOẠT ĐỘNG + APP THỨ 3
 // ============================================================
 
 static inline int VI_CountConcurrentActivities(UIView *primaryContainer, UIView *secondaryContainer) {
@@ -461,7 +771,7 @@ static inline int VI_CountConcurrentActivities(UIView *primaryContainer, UIView 
 
     if ([UIScreen mainScreen].isCaptured) {
         activeTaskCount++;
-        if (activeTaskCount >= 3 && !s_thirdAppDisplayID) s_thirdAppDisplayID = @"com.apple.screenrecording";
+        if (!s_thirdAppDisplayID) s_thirdAppDisplayID = @"com.apple.screenrecording";
     }
 
     Class mediaCls = objc_getClass("SBMediaController");
@@ -469,7 +779,7 @@ static inline int VI_CountConcurrentActivities(UIView *primaryContainer, UIView 
         SBMediaController *mc = [mediaCls sharedInstance];
         if (mc && ([mc isPlaying] || [mc isPaused]) && [mc nowPlayingApplication] != nil) {
             activeTaskCount++;
-            if (activeTaskCount >= 3 && !s_thirdAppDisplayID) {
+            if (!s_thirdAppDisplayID) {
                 id app = [mc nowPlayingApplication];
                 if ([app respondsToSelector:@selector(displayIdentifier)]) {
                     s_thirdAppDisplayID = [app displayIdentifier];
@@ -509,7 +819,7 @@ static inline int VI_CountConcurrentActivities(UIView *primaryContainer, UIView 
 }
 
 // ============================================================
-//  CO GIỌT PHẢI THÀNH TRÒN (dùng chung cho 2 & 3 hoạt động)
+//  CO GIỌT PHẢI THÀNH TRÒN — container thật, không đè
 // ============================================================
 
 static void VI_RoundSecondaryContainer(UIView *secondaryContainer, CGRect mainRect, CGFloat bubbleSize) {
@@ -702,12 +1012,10 @@ static void VI_RoundSecondaryContainer(UIView *secondaryContainer, CGRect mainRe
     if (bubbleSize < 28.0f) bubbleSize = 35.0f;
 
     if (hasTwo) {
-        // ==== Giọt PHẢI luôn co tròn đứng yên tại chỗ riêng — KHÔNG bị đè kể cả khi 3 hoạt động ====
         if (secondaryContainer && !secondaryContainer.hidden) {
             VI_RoundSecondaryContainer(secondaryContainer, mainRect, bubbleSize);
         }
 
-        // ==== Giọt TRÁI: CHỈ hiện khi có 3 hoạt động (app thứ 3) ====
         if (hasThree && !s_vi_bubbleManuallyDismissed) {
             if (!s_vi_bubbleVisible) {
                 VI_ShowBubble(mainRect, self, YES);
@@ -720,7 +1028,6 @@ static void VI_RoundSecondaryContainer(UIView *secondaryContainer, CGRect mainRe
         }
     }
     else {
-        // ==== Mất hoạt động → giọt trái hút về, giọt phải giãn lại pill ====
         if (s_vi_bubbleVisible && !s_vi_bubbleManuallyDismissed) {
             VI_HideBubble();
         }
@@ -811,7 +1118,7 @@ static void VI_RoundSecondaryContainer(UIView *secondaryContainer, CGRect mainRe
 %end
 
 // ============================================================
-//  PREFS
+//  PREFS + RESPRING + INIT
 // ============================================================
 
 static void respring(CFNotificationCenterRef c, void *o, CFStringRef n, const void *ob, CFDictionaryRef u) {
@@ -831,9 +1138,14 @@ void preferencesChanged() {
     SET_BOOL(fixEnabled); SET_BOOL(islandEnabled); SET_BOOL(posEnabled); SET_BOOL(hideEnabled);
     SET_BOOL(notificationFix); SET_BOOL(notEnabled); SET_BOOL(colorEnabled);
     SET_BOOL(transEnabled); SET_BOOL(scaleEnabled); SET_BOOL(lineDisabled);
+    SET_BOOL(spoofEnabled); SET_BOOL(hapticsEnabled);
     SET_FLOAT(xPos); SET_FLOAT(yPos); SET_FLOAT(xNot); SET_FLOAT(yNot);
     SET_FLOAT(red); SET_FLOAT(green); SET_FLOAT(blue); SET_FLOAT(alpha); SET_FLOAT(scale);
     if (scale <= 0.05f) scale = 1.0f;
+
+    if (prefs && prefs[@"spoofModel"])     g_spoofModel     = [prefs[@"spoofModel"] copy];
+    if (prefs && prefs[@"spoofOSVersion"]) g_spoofOSVersion = [prefs[@"spoofOSVersion"] copy];
+    if (!spoofEnabled) { g_spoofModel = nil; g_spoofOSVersion = nil; }
 }
 
 %ctor {
@@ -846,5 +1158,9 @@ void preferencesChanged() {
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
             respring, CFSTR("com.ethxnn88.visibleislandprefs-respring"), NULL,
             CFNotificationSuspensionBehaviorCoalesce);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            VI_IntrospectApertureLayer();
+        });
     }
 }
