@@ -332,7 +332,10 @@ static void VI_OpenThirdApp(void) {
                 return;
             }
         }
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
         id app = [[UIApplication sharedApplication] performSelector:NSSelectorFromString(@"_launchApplicationWithIdentifier:") withObject:s_thirdAppDisplayID];
+        #pragma clang diagnostic pop
         (void)app;
     } @catch (NSException *e) { }
 }
@@ -351,9 +354,11 @@ static UIImage *VI_IconForDisplayID(NSString *bid) {
         if (icc && [icc respondsToSelector:@selector(sharedInstance)]) {
             id ic = ((id (*)(id, SEL))objc_msgSend)((id)icc, @selector(sharedInstance));
             id model = nil;
-            if (ic && [ic respondsToSelector:@selector(iconModel)]) model = [ic iconModel];
+            if (ic && [ic respondsToSelector:@selector(iconModel)]) {
+                model = ((id (*)(id, SEL))objc_msgSend)(ic, @selector(iconModel));
+            }
             if (model && [model respondsToSelector:@selector(iconForDisplayIdentifier:)]) {
-                id icon = [model iconForDisplayIdentifier:bid];
+                id icon = ((id (*)(id, SEL, id))objc_msgSend)(model, @selector(iconForDisplayIdentifier:), bid);
                 if (icon) {
                     if ([icon respondsToSelector:@selector(snapshotImageForScale:)]) {
                         img = ((UIImage *(*)(id, SEL, CGFloat))objc_msgSend)(icon, @selector(snapshotImageForScale:), sc);
@@ -369,9 +374,12 @@ static UIImage *VI_IconForDisplayID(NSString *bid) {
             if (lsawCls && [lsawCls respondsToSelector:@selector(defaultWorkspace)]) {
                 id ws = ((id (*)(id, SEL))objc_msgSend)((id)lsawCls, @selector(defaultWorkspace));
                 if (ws && [ws respondsToSelector:@selector(appForBundleIdentifier:)]) {
-                    id app = [ws appForBundleIdentifier:bid];
+                    id app = ((id (*)(id, SEL, id))objc_msgSend)(ws, @selector(appForBundleIdentifier:), bid);
                     if (app && [app respondsToSelector:@selector(icon)]) {
-                        img = [app icon];
+                        id rawIcon = ((id (*)(id, SEL))objc_msgSend)(app, @selector(icon));
+                        if ([rawIcon isKindOfClass:[UIImage class]]) {
+                            img = (UIImage *)rawIcon;
+                        }
                     }
                 }
             }
@@ -782,7 +790,7 @@ static inline int VI_CountConcurrentActivities(UIView *primaryContainer, UIView 
             if (!s_thirdAppDisplayID) {
                 id app = [mc nowPlayingApplication];
                 if ([app respondsToSelector:@selector(displayIdentifier)]) {
-                    s_thirdAppDisplayID = [app displayIdentifier];
+                    s_thirdAppDisplayID = ((id (*)(id, SEL))objc_msgSend)(app, @selector(displayIdentifier));
                 }
             }
         }
