@@ -11,7 +11,9 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = VisibleIsland
 
 VisibleIsland_FILES = Tweak.xm
-VisibleIsland_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
+VisibleIsland_FRAMEWORKS = UIKit Foundation CoreGraphics LocalAuthentication
+VisibleIsland_PRIVATE_FRAMEWORKS = BiometricKitUI
+
 VisibleIsland_CFLAGS = -fobjc-arc
 
 include $(THEOS_MAKE_PATH)/tweak.mk
