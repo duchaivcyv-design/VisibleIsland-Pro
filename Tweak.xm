@@ -30,7 +30,7 @@ static BOOL scaleEnabled;
 static BOOL lineDisabled;
 
 // ============================================================================
-// INTERFACES NATIVE PHÁT HIỆN TỪ CACHE CRYPTEX
+// INTERFACES NATIVE PHÁT HIỆN TỪ CACHE CRYPTEX (ĐÃ BỔ SUNG ĐẦY ĐỦ)
 // ============================================================================
 @interface FBSystemService : NSObject
 + (id)sharedInstance;
@@ -65,12 +65,15 @@ static BOOL lineDisabled;
 - (void)setState:(NSInteger)state animated:(BOOL)animated withCompletion:(id)completion;
 - (void)setFaceVisibility:(BOOL)arg1 animated:(BOOL)arg2;
 - (void)setFeedbackEnabled:(BOOL)arg1;
+- (void)setPaused:(BOOL)arg1;
+- (BOOL)isPaused;
 @end
 
 @interface SBUIBiometricResource : NSObject
 + (id)sharedInstance;
 - (BOOL)hasPearlSupport;
 - (BOOL)isPearlDetectEnabled;
+- (BOOL)isPearlAvailableForSystemAperture;
 - (void)_notifyObserversOfEvent:(unsigned long long)event;
 @end
 
@@ -79,6 +82,7 @@ static BOOL lineDisabled;
 - (BOOL)isUILocked;
 - (void)_finishUIUnlockFromSource:(int)source withOptions:(id)options;
 - (BOOL)unlockUIFromSource:(int)source withOptions:(id)options;
+- (void)lockUIFromSource:(int)source withOptions:(id)options;
 @end
 
 @interface SBUIProudLockIconView : UIView
@@ -86,8 +90,33 @@ static BOOL lineDisabled;
 - (void)setState:(NSInteger)state animated:(BOOL)animated;
 @end
 
+// KHAI BÁO BỔ SUNG: Bắt sự kiện trong App (Ảnh ẩn/xoá, Keychain, App Store, Apple Pay)
+@interface SBBiometricMonitorPearlDataSource : NSObject
+- (void)_setMatching:(BOOL)arg1;
+- (void)device:(id)arg1 pearlEventOccurred:(long long)arg2;
+@end
+
+// KHAI BÁO BỔ SUNG: Bắt sự kiện vuốt lên nhập mã PIN / Passcode
+@interface SBUIPasscodeBiometricAuthenticationView : UIView
+- (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated;
+@end
+
+@interface SBLockScreenBiometricAuthenticationCoordinator : NSObject
+- (void)biometricResource:(id)resource observeEvent:(unsigned long long)event;
+@end
+
+// KHAI BÁO BỔ SUNG: Cờ nhận diện phần cứng Pearl
+@interface SBFMobileKeyBag : NSObject
+- (BOOL)hasPearl;
+@end
+
+@interface BSPlatform : NSObject
+- (NSInteger)homeButtonType;
+@end
+
 @interface Model : NSObject
 + (NSString *)deviceModel;
++ (CGFloat)defaultIslandYOffset;
 @end
 
 @implementation Model
@@ -106,6 +135,34 @@ static BOOL lineDisabled;
     NSString *deviceModel = [NSString stringWithUTF8String:machine];
     free(machine);
     return deviceModel;
+}
+
++ (CGFloat)defaultIslandYOffset {
+    NSString *m = [self deviceModel];
+    // Các dòng Touch ID (iPhone 8, 8 Plus, SE)
+    if ([m hasPrefix:@"iPhone10,1"] || [m hasPrefix:@"iPhone10,4"] ||
+        [m hasPrefix:@"iPhone10,2"] || [m hasPrefix:@"iPhone10,5"] ||
+        [m hasPrefix:@"iPhone12,8"] || [m hasPrefix:@"iPhone14,6"]) {
+        return 11.0;
+    }
+    if ([m isEqualToString:@"iPhone10,3"] || [m isEqualToString:@"iPhone10,6"] ||
+        [m isEqualToString:@"iPhone11,2"] || [m isEqualToString:@"iPhone12,3"]) {
+        return 20.5;
+    }
+    if ([m isEqualToString:@"iPhone11,6"] || [m isEqualToString:@"iPhone12,5"] ||
+        [m isEqualToString:@"iPhone11,8"] || [m isEqualToString:@"iPhone12,1"] ||
+        [m isEqualToString:@"iPhone14,4"]) {
+        return 22.5;
+    }
+    if ([m isEqualToString:@"iPhone13,1"]) return 19.5;
+    if ([m isEqualToString:@"iPhone13,2"] || [m isEqualToString:@"iPhone13,3"]) return 21.5;
+    if ([m isEqualToString:@"iPhone13,4"]) return 22.3;
+    if ([m isEqualToString:@"iPhone14,5"] || [m isEqualToString:@"iPhone14,2"] ||
+        [m isEqualToString:@"iPhone14,7"] || [m isEqualToString:@"iPhone14,8"]) {
+        return 24.0;
+    }
+    if ([m isEqualToString:@"iPhone14,3"]) return 26.0;
+    return 20.5;
 }
 
 @end
@@ -194,39 +251,48 @@ static BOOL lineDisabled;
         [self.dismissTimer invalidate];
 
         CGRect screenBounds = [UIScreen mainScreen].bounds;
-        CGFloat topY = posEnabled ? yPos : 20.5;
-        CGFloat expandedW = 156.0;
-        CGFloat expandedH = 156.0;
+        CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
+        // KÍCH THƯỚC CHUẨN APPLE: Gọn gàng không bị to che widget
+        CGFloat expandedW = 126.0;
+        CGFloat expandedH = 80.0;
 
-        // Trạng thái quét khuôn mặt của LAUIPearlGlyphView (State 1)
         [self.glyphView setFaceVisibility:YES animated:YES];
+        // Ép glyphView luôn render mượt mà, không bị freeze khi hiện passcode
+        if ([self.glyphView respondsToSelector:@selector(setPaused:)]) {
+            [(id)self.glyphView setPaused:NO];
+        }
         [self.glyphView setState:1 animated:YES withCompletion:nil];
 
-        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.8 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.8 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
             self.pillContainer.alpha = 1.0;
             self.pillContainer.frame = CGRectMake((screenBounds.size.width - expandedW) / 2.0, topY, expandedW, expandedH);
-            self.pillContainer.layer.cornerRadius = 42.0;
+            self.pillContainer.layer.cornerRadius = 38.0;
             self.glyphView.center = CGPointMake(expandedW / 2.0, expandedH / 2.0);
-            self.glyphView.transform = CGAffineTransformMakeScale(1.35, 1.35);
+            self.glyphView.transform = CGAffineTransformMakeScale(0.95, 0.95); // Thu nhỏ vừa khít viên thuốc
         } completion:nil];
 
         self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:3.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
     });
 }
 
-- (void)showSuccess {
+- (void)collapse {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self setupNativeGlyphIfNeeded];
-        [self.dismissTimer invalidate];
+        CGRect screenBounds = [UIScreen mainScreen].bounds;
+        CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
+        CGFloat baseW = 126.0;
+        CGFloat baseH = 37.0;
 
-        // Trạng thái mở khoá thành công của LAUIPearlGlyphView (State 2: Mặt cười / Checkmark)
-        [self.glyphView setState:2 animated:YES withCompletion:nil];
-
-        [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:1.0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.glyphView.transform = CGAffineTransformMakeScale(1.45, 1.45);
-        } completion:nil];
-
-        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.2 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
+        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0.5 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+            self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
+            self.pillContainer.frame = CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH);
+            self.pillContainer.layer.cornerRadius = baseH / 2.0;
+            self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
+            self.pillContainer.alpha = 0.0;
+        } completion:^(BOOL finished) {
+            if (finished) {
+                [self.glyphView setState:0 animated:NO withCompletion:nil];
+            }
+        }];
     });
 }
 
@@ -270,8 +336,9 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================================
-// HOOK HỆ THỐNG GỐC KÍCH HOẠT HIỆU ỨNG
+// HOOK HỆ THỐNG GỐC KÍCH HOẠT HIỆU ỨNG (MÀN HÌNH KHÓA + IN-APP + PASSCODE)
 // ============================================================================
+
 %hook SBFMobileKeyBag
 - (BOOL)hasPearl {
     return YES;
@@ -288,10 +355,10 @@ static BOOL lineDisabled;
 - (void)_notifyObserversOfEvent:(unsigned long long)event {
     %orig;
     // Chạm vân tay / quét camera -> Kích hoạt quét trên đảo
-    if (event == 1 || event == 2 || event == 13) {
+    if (event == 1 || event == 2 || event == 12 || event == 13) {
         [[NativeIslandGlyphController sharedInstance] showScanning];
     } 
-    // Khớp khuôn mặt / Khớp vân tay (Touch ID) / Tweak mở khoá thành công
+    // Khớp khuôn mặt / Khớp vân tay (Touch ID) / Tweak mở khoá / Thanh toán thành công
     else if (event == 3 || event == 4 || event == 14 || event == 15) {
         [[NativeIslandGlyphController sharedInstance] showSuccess];
     } 
@@ -302,6 +369,7 @@ static BOOL lineDisabled;
 }
 %end
 
+// 1. Mở khóa màn hình khóa
 %hook SBLockScreenManager
 - (void)_finishUIUnlockFromSource:(int)source withOptions:(id)options {
     [[NativeIslandGlyphController sharedInstance] showSuccess];
@@ -322,6 +390,7 @@ static BOOL lineDisabled;
 }
 %end
 
+// 2. Đồng bộ icon khóa trên màn hình khóa (Visage / Camera tweaks)
 %hook SBUIProudLockIconView
 - (void)setState:(NSInteger)state animated:(BOOL)animated {
     %orig;
@@ -329,6 +398,51 @@ static BOOL lineDisabled;
         [[NativeIslandGlyphController sharedInstance] showScanning];
     } else if (state == 2) {
         [[NativeIslandGlyphController sharedInstance] showSuccess];
+    }
+}
+%end
+
+// 3. SỬA LỖI IN-APP: Bắt xác thực trong App (Ảnh ẩn/xóa, App Store, Apple Pay, Mật khẩu Keychain)
+%hook SBBiometricMonitorPearlDataSource
+- (void)_setMatching:(BOOL)matching {
+    %orig;
+    if (matching) {
+        [[NativeIslandGlyphController sharedInstance] showScanning];
+    }
+}
+
+- (void)device:(id)device pearlEventOccurred:(long long)event {
+    %orig;
+    if (event == 1) {
+        // App bắt đầu gọi quét Face ID / Vân tay
+        [[NativeIslandGlyphController sharedInstance] showScanning];
+    } else if (event == 4) {
+        // App xác thực thành công (Mở mục ẩn, mua hàng thành công)
+        [[NativeIslandGlyphController sharedInstance] showSuccess];
+    } else if (event == 8 || event == 9) {
+        // Thất bại trong app
+        [[NativeIslandGlyphController sharedInstance] showFailure];
+    }
+}
+%end
+
+// 4. SỬA LỖI VUỐT LÊN NHẬP MẬT MÃ: Face ID xoay ngay khi bàn phím số hiện ra
+%hook SBUIPasscodeBiometricAuthenticationView
+- (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
+    %orig;
+    if (state != 0) {
+        [[NativeIslandGlyphController sharedInstance] showScanning];
+    }
+}
+%end
+
+%hook SBLockScreenBiometricAuthenticationCoordinator
+- (void)biometricResource:(id)resource observeEvent:(unsigned long long)event {
+    %orig;
+    if (event == 4 || event == 3) {
+        [[NativeIslandGlyphController sharedInstance] showSuccess];
+    } else if (event == 1 || event == 2 || event == 13) {
+        [[NativeIslandGlyphController sharedInstance] showScanning];
     }
 }
 %end
@@ -863,12 +977,69 @@ void preferencesChanged(){
     scale = [[prefs objectForKey:@"scale"] floatValue];
 }
 
-%ctor{
+// Hàm nhận tín hiệu kích hoạt Face ID từ App / Daemon bên ngoài truyền về SpringBoard
+static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.scanning"))) {
+        [[NativeIslandGlyphController sharedInstance] showScanning];
+    } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.success"))) {
+        [[NativeIslandGlyphController sharedInstance] showSuccess];
+    } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.failure"))) {
+        [[NativeIslandGlyphController sharedInstance] showFailure];
+    }
+}
+
+%ctor {
     preferencesChanged();
 
-    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)preferencesChanged, CFSTR("com.ethxnn88.visibleislandprefs-updated"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+    // Lắng nghe cập nhật Preferences
+    CFNotificationCenterAddObserver(
+        CFNotificationCenterGetDarwinNotifyCenter(),
+        NULL,
+        (CFNotificationCallback)preferencesChanged,
+        CFSTR("com.ethxnn88.visibleislandprefs-updated"),
+        NULL,
+        CFNotificationSuspensionBehaviorDeliverImmediately
+    );
 
-    if ([[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, respring, CFSTR("com.ethxnn88.visibleislandprefs-respring"), NULL, CFNotificationSuspensionBehaviorCoalesce);
+    NSString *bundleID = [NSBundle mainBundle].bundleIdentifier;
+
+    // Chỉ đăng ký điều khiển UI và nhận lệnh điều phối bên trong SpringBoard
+    if ([bundleID isEqualToString:@"com.apple.springboard"]) {
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            NULL,
+            respring,
+            CFSTR("com.ethxnn88.visibleislandprefs-respring"),
+            NULL,
+            CFNotificationSuspensionBehaviorCoalesce
+        );
+
+        // Lắng nghe các sự kiện Face ID từ App Store / Apple Pay / Mục ẩn truyền về SpringBoard
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            NULL,
+            handleExternalFaceIDTrigger,
+            CFSTR("com.ethxnn88.visibleisland.scanning"),
+            NULL,
+            CFNotificationSuspensionBehaviorDeliverImmediately
+        );
+
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            NULL,
+            handleExternalFaceIDTrigger,
+            CFSTR("com.ethxnn88.visibleisland.success"),
+            NULL,
+            CFNotificationSuspensionBehaviorDeliverImmediately
+        );
+
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            NULL,
+            handleExternalFaceIDTrigger,
+            CFSTR("com.ethxnn88.visibleisland.failure"),
+            NULL,
+            CFNotificationSuspensionBehaviorDeliverImmediately
+        );
     }
 }
