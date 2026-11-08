@@ -210,7 +210,7 @@ static BOOL lineDisabled;
         }
     }
 
-    CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
+    CGFloat topY = posEnabled ? yPos : 20.5;
     CGFloat baseW = 126.0;
     CGFloat baseH = 37.0;
 
@@ -251,22 +251,20 @@ static BOOL lineDisabled;
         [self.dismissTimer invalidate];
 
         CGRect screenBounds = [UIScreen mainScreen].bounds;
-        CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
-        CGFloat expandedW = 126.0;
-        CGFloat expandedH = 80.0;
+        CGFloat topY = posEnabled ? yPos : 20.5;
+        CGFloat expandedW = 156.0;
+        CGFloat expandedH = 156.0;
 
+        // Trạng thái quét khuôn mặt của LAUIPearlGlyphView (State 1)
         [self.glyphView setFaceVisibility:YES animated:YES];
-        if ([self.glyphView respondsToSelector:@selector(setPaused:)]) {
-            [(id)self.glyphView setPaused:NO];
-        }
         [self.glyphView setState:1 animated:YES withCompletion:nil];
 
-        [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.8 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.8 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
             self.pillContainer.alpha = 1.0;
             self.pillContainer.frame = CGRectMake((screenBounds.size.width - expandedW) / 2.0, topY, expandedW, expandedH);
-            self.pillContainer.layer.cornerRadius = 38.0;
+            self.pillContainer.layer.cornerRadius = 42.0;
             self.glyphView.center = CGPointMake(expandedW / 2.0, expandedH / 2.0);
-            self.glyphView.transform = CGAffineTransformMakeScale(0.95, 0.95);
+            self.glyphView.transform = CGAffineTransformMakeScale(1.35, 1.35);
         } completion:nil];
 
         self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:3.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
@@ -278,13 +276,11 @@ static BOOL lineDisabled;
         [self setupNativeGlyphIfNeeded];
         [self.dismissTimer invalidate];
 
-        if ([self.glyphView respondsToSelector:@selector(setPaused:)]) {
-            [(id)self.glyphView setPaused:NO];
-        }
+        // Trạng thái mở khoá thành công của LAUIPearlGlyphView (State 2: Mặt cười / Checkmark)
         [self.glyphView setState:2 animated:YES withCompletion:nil];
 
         [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:1.0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.glyphView.transform = CGAffineTransformMakeScale(1.15, 1.15);
+            self.glyphView.transform = CGAffineTransformMakeScale(1.45, 1.45);
         } completion:nil];
 
         self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.2 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
@@ -294,14 +290,13 @@ static BOOL lineDisabled;
 - (void)showFailure {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self setupNativeGlyphIfNeeded];
-        [self.dismissTimer invalidate];
-
+        // Trạng thái lỗi (State 3: Lắc glyph)
         [self.glyphView setState:3 animated:YES withCompletion:nil];
 
         CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
         shake.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
         shake.duration = 0.45;
-        shake.values = @[@(-10), @(10), @(-8), @(8), @(-4), @(4), @(0)];
+        shake.values = @[@(-12), @(12), @(-9), @(9), @(-5), @(5), @(0)];
         [self.pillContainer.layer addAnimation:shake forKey:@"shake"];
 
         self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
@@ -311,11 +306,11 @@ static BOOL lineDisabled;
 - (void)collapse {
     dispatch_async(dispatch_get_main_queue(), ^{
         CGRect screenBounds = [UIScreen mainScreen].bounds;
-        CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
+        CGFloat topY = posEnabled ? yPos : 20.5;
         CGFloat baseW = 126.0;
         CGFloat baseH = 37.0;
 
-        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0.5 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
             self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
             self.pillContainer.frame = CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH);
             self.pillContainer.layer.cornerRadius = baseH / 2.0;
@@ -330,6 +325,7 @@ static BOOL lineDisabled;
 }
 
 @end
+
 //====================================
 // HOOK HỆ THỐNG GỐC KÍCH HOẠT HIỆU ỨNG (MÀN HÌNH KHÓA + IN-APP + PASSCODE)
 // ============================================================================
