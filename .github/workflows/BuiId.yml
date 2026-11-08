@@ -1,4 +1,4 @@
-name: Build LiquidMorph tweak
+name: Build VisibleIsland tweak
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
         run: |
-          brew install fakeroot dpkg zstd
+          brew install ldid fakeroot dpkg zstd make
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           curl -fsSL https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C "$THEOS/sdks" --strip-components=1
 
@@ -26,7 +26,7 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
         run: |
-          export PATH="$THEOS/bin:$PATH"
+          export PATH="$(brew --prefix make)/libexec/gnubin:$THEOS/bin:$PATH"
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 
       - name: Make Repository Files for Sileo & Find Deb
@@ -46,14 +46,14 @@ jobs:
           zstd -c Packages > Packages.zst
           
           cat << 'EOF' > Release
-          Origin: LiquidMorph Repo
-          Label: LiquidMorph Repo
+          Origin: VisibleIsland Repo
+          Label: VisibleIsland Repo
           Suite: stable
           Version: 1.0
           Codename: ios
           Architectures: iphoneos-arm64
           Components: main
-          Description: Repository for LiquidMorph Tweak
+          Description: Repository for VisibleIsland Tweak
           EOF
           cd ..
 
