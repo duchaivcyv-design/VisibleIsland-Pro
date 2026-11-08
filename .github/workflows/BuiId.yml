@@ -18,7 +18,6 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
         run: |
-          # Gỡ hoặc không cài fakeroot trên Homebrew để tránh xung đột dyld arm64 vs arm64e
           brew install ldid dpkg zstd make
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           curl -fsSL https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C "$THEOS/sdks" --strip-components=1
@@ -28,14 +27,19 @@ jobs:
           THEOS: ${{ github.workspace }}/theos
         run: |
           export PATH="$(brew --prefix make)/libexec/gnubin:$THEOS/bin:$PATH"
-          # Tắt fakeroot dylib injection, Theos sẽ tự dùng phương thức native dpkg-deb/tar an toàn
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless FAKEROOT=
+          
+          # Sử dụng dm.pl nội bộ của Theos để đóng gói deb trực tiếp
+          # Gán FAKEROOT=true để không bị rỗng lệnh và không load dylib fakeroot lỗi của Homebrew
+          make package \
+            FINALPACKAGE=1 \
+            THEOS_PACKAGE_SCHEME=rootless \
+            FAKEROOT=true
 
       - name: Make Repository Files for Sileo & Find Deb
         run: |
           mkdir -p public/debs
           
-          find . -name "*.deb" ! -path "./public/*" -exec cp -v {} public/debs/ \;
+          find packages -name "*.deb" -exec cp -v {} public/debs/ \; 2>/dev/null || find . -name "*.deb" ! -path "./public/*" -exec cp -v {} public/debs/ \;
           
           if [ -z "$(ls -A public/debs)" ]; then
              echo "Error: Không tìm thấy file .deb nào sau khi build!"
