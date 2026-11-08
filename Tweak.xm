@@ -30,7 +30,7 @@ static BOOL scaleEnabled;
 static BOOL lineDisabled;
 
 // ============================================================================
-// INTERFACES HỆ THỐNG GỐC CỦA SPRINGBOARD & SYSTEM APERTURE
+// INTERFACES NATIVE PHÁT HIỆN TỪ CACHE CRYPTEX
 // ============================================================================
 @interface FBSystemService : NSObject
 + (id)sharedInstance;
@@ -55,10 +55,22 @@ static BOOL lineDisabled;
 @interface SBFTouchPassThroughView : UIView
 @end
 
+@interface LAUIPearlGlyphStaticConfiguration : NSObject
++ (id)createSystemApertureConfiguration;
++ (id)createDefaultConfiguration;
+@end
+
+@interface LAUIPearlGlyphView : UIView
+- (id)initWithConfiguration:(id)arg1;
+- (void)setState:(NSInteger)state animated:(BOOL)animated withCompletion:(id)completion;
+- (void)setFaceVisibility:(BOOL)arg1 animated:(BOOL)arg2;
+- (void)setFeedbackEnabled:(BOOL)arg1;
+@end
+
 @interface SBUIBiometricResource : NSObject
 + (id)sharedInstance;
 - (BOOL)hasPearlSupport;
-- (BOOL)hasMesaSupport;
+- (BOOL)isPearlDetectEnabled;
 - (void)_notifyObserversOfEvent:(unsigned long long)event;
 @end
 
@@ -67,6 +79,11 @@ static BOOL lineDisabled;
 - (BOOL)isUILocked;
 - (void)_finishUIUnlockFromSource:(int)source withOptions:(id)options;
 - (BOOL)unlockUIFromSource:(int)source withOptions:(id)options;
+@end
+
+@interface SBUIProudLockIconView : UIView
+- (LAUIPearlGlyphView *)_pearlGlyphView;
+- (void)setState:(NSInteger)state animated:(BOOL)animated;
 @end
 
 @interface Model : NSObject
@@ -94,10 +111,167 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================================
-// KÍCH HOẠT HIỆU ỨNG GỐC CỦA APPLE: BUNG PEARL / FACE ID / APPLE PAY TRÊN DYNAMIC ISLAND
+// BỘ QUẢN LÝ GLYPH FACE ID NATIVE DÀNH CHO SYSTEM APERTURE
 // ============================================================================
+@interface NativeIslandGlyphController : NSObject
+@property (nonatomic, strong) UIWindow *glyphWindow;
+@property (nonatomic, strong) UIView *pillContainer;
+@property (nonatomic, strong) LAUIPearlGlyphView *glyphView;
+@property (nonatomic, strong) NSTimer *dismissTimer;
++ (instancetype)sharedInstance;
+- (void)showScanning;
+- (void)showSuccess;
+- (void)showFailure;
+- (void)collapse;
+@end
 
-// 1. Mở cờ nhận diện phần cứng Pearl trên SpringBoard
+@implementation NativeIslandGlyphController
+
++ (instancetype)sharedInstance {
+    static NativeIslandGlyphController *inst = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        inst = [[NativeIslandGlyphController alloc] init];
+    });
+    return inst;
+}
+
+- (void)setupNativeGlyphIfNeeded {
+    if (self.glyphWindow) return;
+
+    CGRect screenBounds = [UIScreen mainScreen].bounds;
+    self.glyphWindow = [[UIWindow alloc] initWithFrame:screenBounds];
+    self.glyphWindow.windowLevel = UIWindowLevelStatusBar + 600.0;
+    self.glyphWindow.backgroundColor = [UIColor clearColor];
+    self.glyphWindow.userInteractionEnabled = NO;
+    self.glyphWindow.hidden = NO;
+
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if ([scene isKindOfClass:[UIWindowScene class]]) {
+            self.glyphWindow.windowScene = (UIWindowScene *)scene;
+            break;
+        }
+    }
+
+    CGFloat topY = posEnabled ? yPos : 20.5;
+    CGFloat baseW = 126.0;
+    CGFloat baseH = 37.0;
+
+    self.pillContainer = [[UIView alloc] initWithFrame:CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH)];
+    self.pillContainer.backgroundColor = [UIColor blackColor];
+    self.pillContainer.layer.cornerRadius = baseH / 2.0;
+    self.pillContainer.layer.cornerCurve = kCACornerCurveContinuous;
+    self.pillContainer.clipsToBounds = YES;
+    self.pillContainer.alpha = 0.0;
+    [self.glyphWindow addSubview:self.pillContainer];
+
+    // Khởi tạo LAUIPearlGlyphView bằng cấu hình SystemAperture từ cache
+    Class configClass = %c(LAUIPearlGlyphStaticConfiguration);
+    id saConfig = nil;
+    if ([configClass respondsToSelector:@selector(createSystemApertureConfiguration)]) {
+        saConfig = [configClass createSystemApertureConfiguration];
+    } else if ([configClass respondsToSelector:@selector(createDefaultConfiguration)]) {
+        saConfig = [configClass createDefaultConfiguration];
+    }
+
+    Class glyphClass = %c(LAUIPearlGlyphView);
+    if (saConfig && [glyphClass instancesRespondToSelector:@selector(initWithConfiguration:)]) {
+        self.glyphView = [[glyphClass alloc] initWithConfiguration:saConfig];
+    } else {
+        self.glyphView = [[glyphClass alloc] initWithFrame:CGRectMake(0, 0, 76, 76)];
+    }
+
+    self.glyphView.frame = CGRectMake(0, 0, 76, 76);
+    self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
+    self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
+    [self.glyphView setFeedbackEnabled:YES];
+    [self.pillContainer addSubview:self.glyphView];
+}
+
+- (void)showScanning {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self setupNativeGlyphIfNeeded];
+        [self.dismissTimer invalidate];
+
+        CGRect screenBounds = [UIScreen mainScreen].bounds;
+        CGFloat topY = posEnabled ? yPos : 20.5;
+        CGFloat expandedW = 156.0;
+        CGFloat expandedH = 156.0;
+
+        // Trạng thái quét khuôn mặt của LAUIPearlGlyphView (State 1)
+        [self.glyphView setFaceVisibility:YES animated:YES];
+        [self.glyphView setState:1 animated:YES withCompletion:nil];
+
+        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.8 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+            self.pillContainer.alpha = 1.0;
+            self.pillContainer.frame = CGRectMake((screenBounds.size.width - expandedW) / 2.0, topY, expandedW, expandedH);
+            self.pillContainer.layer.cornerRadius = 42.0;
+            self.glyphView.center = CGPointMake(expandedW / 2.0, expandedH / 2.0);
+            self.glyphView.transform = CGAffineTransformMakeScale(1.35, 1.35);
+        } completion:nil];
+
+        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:3.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
+    });
+}
+
+- (void)showSuccess {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self setupNativeGlyphIfNeeded];
+        [self.dismissTimer invalidate];
+
+        // Trạng thái mở khoá thành công của LAUIPearlGlyphView (State 2: Mặt cười / Checkmark)
+        [self.glyphView setState:2 animated:YES withCompletion:nil];
+
+        [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:1.0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+            self.glyphView.transform = CGAffineTransformMakeScale(1.45, 1.45);
+        } completion:nil];
+
+        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.2 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
+    });
+}
+
+- (void)showFailure {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self setupNativeGlyphIfNeeded];
+        // Trạng thái lỗi (State 3: Lắc glyph)
+        [self.glyphView setState:3 animated:YES withCompletion:nil];
+
+        CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
+        shake.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+        shake.duration = 0.45;
+        shake.values = @[@(-12), @(12), @(-9), @(9), @(-5), @(5), @(0)];
+        [self.pillContainer.layer addAnimation:shake forKey:@"shake"];
+
+        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
+    });
+}
+
+- (void)collapse {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        CGRect screenBounds = [UIScreen mainScreen].bounds;
+        CGFloat topY = posEnabled ? yPos : 20.5;
+        CGFloat baseW = 126.0;
+        CGFloat baseH = 37.0;
+
+        [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+            self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
+            self.pillContainer.frame = CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH);
+            self.pillContainer.layer.cornerRadius = baseH / 2.0;
+            self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
+            self.pillContainer.alpha = 0.0;
+        } completion:^(BOOL finished) {
+            if (finished) {
+                [self.glyphView setState:0 animated:NO withCompletion:nil];
+            }
+        }];
+    });
+}
+
+@end
+
+// ============================================================================
+// HOOK HỆ THỐNG GỐC KÍCH HOẠT HIỆU ỨNG
+// ============================================================================
 %hook SBFMobileKeyBag
 - (BOOL)hasPearl {
     return YES;
@@ -108,96 +282,59 @@ static BOOL lineDisabled;
 - (BOOL)hasPearlSupport {
     return YES;
 }
+- (BOOL)isPearlDetectEnabled {
+    return YES;
+}
+- (void)_notifyObserversOfEvent:(unsigned long long)event {
+    %orig;
+    // Chạm vân tay / quét camera -> Kích hoạt quét trên đảo
+    if (event == 1 || event == 2 || event == 13) {
+        [[NativeIslandGlyphController sharedInstance] showScanning];
+    } 
+    // Khớp khuôn mặt / Khớp vân tay (Touch ID) / Tweak mở khoá thành công
+    else if (event == 3 || event == 4 || event == 14 || event == 15) {
+        [[NativeIslandGlyphController sharedInstance] showSuccess];
+    } 
+    // Thất bại
+    else if (event == 9 || event == 10 || event == 11) {
+        [[NativeIslandGlyphController sharedInstance] showFailure];
+    }
+}
 %end
 
-// 2. Kích hoạt Presentation của Biometric Auth trên SystemAperture (iOS 16+)
-// Ép SpringBoard đẩy toàn bộ UI nhận diện khuôn mặt / thanh toán vào Dynamic Island thay vì popup giữa màn hình
-%hook SBBioAuthSceneController
-
-- (BOOL)isSystemApertureAvailable {
-    return YES;
-}
-
-- (BOOL)_shouldUseSystemApertureForAuthPresentation {
-    return YES;
-}
-
-- (BOOL)_isSystemApertureSupported {
-    return YES;
-}
-
-%end
-
-%hook SBSystemApertureController
-
-- (BOOL)isBiometricAuthSystemApertureAvailable {
-    return YES;
-}
-
-- (BOOL)isSystemApertureAvailable {
-    return YES;
-}
-
-%end
-
-// 3. Tương thích Touch ID, Face ID, Mật khẩu, Visage, Tweak Camera
-// Chuyển toàn bộ sự kiện mở khoá thành công vào Controller native của Dynamic Island
 %hook SBLockScreenManager
-
 - (void)_finishUIUnlockFromSource:(int)source withOptions:(id)options {
-    // Kích hoạt animation Face ID gốc bung ra xác nhận thành công
-    [[%c(SBUIBiometricResource) sharedInstance] _notifyObserversOfEvent:4];
+    [[NativeIslandGlyphController sharedInstance] showSuccess];
     %orig;
 }
 
 - (BOOL)unlockUIFromSource:(int)source withOptions:(id)options {
     BOOL res = %orig;
     if (res) {
-        [[%c(SBUIBiometricResource) sharedInstance] _notifyObserversOfEvent:4];
+        [[NativeIslandGlyphController sharedInstance] showSuccess];
     }
     return res;
 }
 
 - (void)lockUIFromSource:(int)source withOptions:(id)options {
     %orig;
-    // Bật màn hình khoá -> Kích hoạt animation quét Pearl gốc của Apple
-    [[%c(SBUIBiometricResource) sharedInstance] _notifyObserversOfEvent:1];
+    [[NativeIslandGlyphController sharedInstance] showScanning];
 }
-
 %end
 
-%hook SBUIBiometricResource
-
-- (void)_notifyObserversOfEvent:(unsigned long long)event {
-    // Touch ID chạm / mở quét (Event 13, 1, 2) -> Kích hoạt quả cầu xanh 3D quét gốc
-    if (event == 13 || event == 1 || event == 2) {
-        %orig(1);
-        return;
-    }
-    // Touch ID khớp / Camera tweak khớp (Event 3) -> Ép chạy animation mở khoá thành công gốc
-    if (event == 3) {
-        %orig(4);
-        return;
-    }
-    %orig(event);
-}
-
-%end
-
-// SBUIProudLockIconView: Đồng bộ hoá với Visage / Checkl0ck / Tweaks nhận diện qua camera
 %hook SBUIProudLockIconView
 - (void)setState:(NSInteger)state animated:(BOOL)animated {
     %orig;
     if (state == 1) {
-        [[%c(SBUIBiometricResource) sharedInstance] _notifyObserversOfEvent:1];
+        [[NativeIslandGlyphController sharedInstance] showScanning];
     } else if (state == 2) {
-        [[%c(SBUIBiometricResource) sharedInstance] _notifyObserversOfEvent:4];
+        [[NativeIslandGlyphController sharedInstance] showSuccess];
     }
 }
 %end
 
 // ============================================================================
-// GIỮ NGUYÊN HOÀN TOÀN TẤT CẢ CÁC HOOK GỐC CỦA VISIBLEISLAND
+// GIỮ NGUYÊN HOÀN TOÀN TẤT CẢ CÁC HOOK CỦA VISIBLEISLAND
 // ============================================================================
 %hook SBSystemApertureWindow
 
@@ -502,28 +639,28 @@ static BOOL lineDisabled;
         } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
             %orig;
             return CGRectMake(0, 35, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max FAKE OFFSETS??
+        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max
             %orig;
             return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max FAKE OFFSTES??
+        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max
             %orig;
             return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR
             %orig;
             return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11 FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11
             %orig;
             return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12 FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12
             %orig;
             return CGRectMake(0, 35, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro
             %orig;
             return CGRectMake(0, 35, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini
             %orig;
             return CGRectMake(0, 33, 360, 780);
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max
             %orig;
             return CGRectMake(0, 38, 428, 926);
         } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
@@ -535,10 +672,10 @@ static BOOL lineDisabled;
         } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
             %orig;
             return CGRectMake(0, 40, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini FAKE OFFSETS??
+        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini
             %orig;
             return CGRectMake(0, 38, 360, 780);
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max FAKE OFFSETS??
+        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max
             %orig;
             return CGRectMake(0, 42, 428, 926);
         }
@@ -611,21 +748,21 @@ static BOOL lineDisabled;
             %orig(CGRectMake(0, 35, 375, 812));
         } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
             %orig(CGRectMake(0, 35, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max FAKE OFFSETS??
+        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max
             %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max FAKE OFFSETS??
+        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max
             %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR
             %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11 FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11
             %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12 FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12
             %orig(CGRectMake(0, 35, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro
             %orig(CGRectMake(0, 35, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini
             %orig(CGRectMake(0, 33, 360, 780));
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max
             %orig(CGRectMake(0, 38, 428, 926));
         } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
             %orig(CGRectMake(0, 40, 390, 844));
@@ -633,9 +770,9 @@ static BOOL lineDisabled;
             %orig(CGRectMake(0, 40, 390, 844));
         } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
             %orig(CGRectMake(0, 40, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini FAKE OFFSETS??
+        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini
             %orig(CGRectMake(0, 38, 360, 780));
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max FAKE OFFSETS??
+        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max
             %orig(CGRectMake(0, 42, 428, 926));
         }
     } else if (notEnabled) {
