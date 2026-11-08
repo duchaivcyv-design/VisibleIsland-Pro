@@ -1,1 +1,15 @@
-{ Filter = { Bundles = ( "com.apple.springboard", "com.apple.UIKit" ); }; }
+{
+    Filter = {
+        Bundles = (
+            "com.apple.springboard",
+            "com.apple.UIKit",
+            "com.apple.LocalAuthentication",
+            "com.apple.LocalAuthenticationRemoteUI",
+            "com.apple.PassKitCore",
+            "com.apple.PassKitUI"
+        );
+        Executables = (
+            "coreauthd"
+        );
+    };
+}
