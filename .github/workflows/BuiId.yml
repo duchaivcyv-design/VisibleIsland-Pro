@@ -1,82 +1,95 @@
-name: Build VisibleIsland tweak
+name: Build and Package Theos Tweak
 
 on:
   push:
-    branches: [main, master]
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
+env:
+  THEOS: ${{ github.workspace }}/theos
+
 jobs:
-  build:
-    name: Build .deb and Repo
-    runs-on: macos-latest
+  build-rootless:
+    name: Build Rootless Package
+    runs-on: macos-15
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Install Packaging Dependencies & Setup Theos
-        env:
-          THEOS: ${{ github.workspace }}/theos
-        run: |
-          brew install ldid dpkg zstd make
-          git clone --recursive https://github.com/theos/theos.git "$THEOS"
-          curl -fsSL https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C "$THEOS/sdks" --strip-components=1
+    - name: Install Build Dependencies
+      run: |
+        brew install ldid xz dpkg make cmake
 
-      - name: Build package
-        env:
-          THEOS: ${{ github.workspace }}/theos
-        run: |
-          export PATH="$(brew --prefix make)/libexec/gnubin:$THEOS/bin:$PATH"
-          
-          # Biên dịch và đóng gói bỏ qua fakeroot dylib injection
-          make package \
-            FINALPACKAGE=1 \
-            THEOS_PACKAGE_SCHEME=rootless \
-            FAKEROOT=true
+    - name: Setup Theos with iOS SDKs
+      run: |
+        git clone --recursive --depth 1 https://github.com/theos/theos.git "$THEOS"
+        mkdir -p "$THEOS/sdks"
+        git clone --depth 1 https://github.com/theos/sdks.git /tmp/theos-sdks
+        mv /tmp/theos-sdks/iPhoneOS*.sdk "$THEOS/sdks/"
+        echo "Available SDKs:"
+        ls "$THEOS/sdks/"
 
-      - name: Make Repository Files for Sileo & Find Deb
-        run: |
-          mkdir -p public/debs
-          
-          # Theos tạo deb nằm trong thư mục ./packages/
-          if [ -d "packages" ]; then
-            cp -v packages/*.deb public/debs/ 2>/dev/null || true
-          fi
-          
-          # Quét thêm toàn bộ workspace phòng trường hợp lưu ở thư mục khác
-          find . -name "*.deb" ! -path "./public/*" -exec cp -v {} public/debs/ \;
-          
-          # Kiểm tra lại xem deb đã được tạo thành công chưa
-          if [ -z "$(ls -A public/debs 2>/dev/null)" ]; then
-             echo "Error: Không tìm thấy file .deb nào sau khi build!"
-             exit 1
-          fi
-          
-          cd public
-          dpkg-scanpackages -m debs /dev/null > Packages
-          bzip2 -9 -c Packages > Packages.bz2
-          zstd -c Packages > Packages.zst
-          
-          cat << 'EOF' > Release
-          Origin: VisibleIsland Repo
-          Label: VisibleIsland Repo
-          Suite: stable
-          Version: 1.0
-          Codename: ios
-          Architectures: iphoneos-arm64
-          Components: main
-          Description: Repository for VisibleIsland Tweak
-          EOF
-          cd ..
+    - name: Build Dobby (Universal arm64 + arm64e)
+      run: |
+        git clone --depth 1 https://github.com/jmpews/Dobby.git /tmp/Dobby
+        cd /tmp/Dobby
 
-      - name: Upload Repository Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: repository
-          path: public/
+        # --- Build arm64 slice ---
+        mkdir build_arm64 && cd build_arm64
+        cmake .. \
+          -DCMAKE_SYSTEM_NAME=iOS \
+          -DCMAKE_OSX_ARCHITECTURES=arm64 \
+          -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DDOBBY_GENERATE_SHARED=OFF
+        make -j$(sysctl -n hw.ncpu)
+        cd ..
 
-      - name: Upload Repository Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: repository
-          path: public/
+        # --- Build arm64e slice ---
+        mkdir build_arm64e && cd build_arm64e
+        cmake .. \
+          -DCMAKE_SYSTEM_NAME=iOS \
+          -DCMAKE_OSX_ARCHITECTURES=arm64e \
+          -DCMAKE_SYSTEM_PROCESSOR=arm64e \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DDOBBY_GENERATE_SHARED=OFF
+        make -j$(sysctl -n hw.ncpu)
+        cd ..
+
+        # --- Tự động tìm file libdobby.a (tránh lỗi sai đường dẫn của CMake) ---
+        ARM64_LIB=$(find build_arm64 -name "libdobby.a" | head -n 1)
+        ARM64E_LIB=$(find build_arm64e -name "libdobby.a" | head -n 1)
+
+        # --- Ghép 2 slice thành universal binary và copy vào project ---
+        mkdir -p "$GITHUB_WORKSPACE/vendor/dobby"
+        lipo -create \
+          "$ARM64_LIB" \
+          "$ARM64E_LIB" \
+          -output "$GITHUB_WORKSPACE/vendor/dobby/libdobby.a"
+        cp include/dobby.h "$GITHUB_WORKSPACE/vendor/dobby/"
+
+        echo "===> Dobby architectures:"
+        lipo -info "$GITHUB_WORKSPACE/vendor/dobby/libdobby.a"
+
+    - name: Compile and Package (Rootless)
+      run: |
+        make package FINALPACKAGE=1
+
+    - name: Collect Packages
+      run: |
+        mkdir -p artifacts
+        find . -maxdepth 3 -name "*.deb" -exec cp {} artifacts/ \;
+        echo "===> Built packages:"
+        ls -la artifacts/
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: packages-rootless
+        path: artifacts/*.deb
+        if-no-files-found: error
