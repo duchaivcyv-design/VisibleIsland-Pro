@@ -35,34 +35,6 @@ jobs:
             THEOS_PACKAGE_SCHEME=rootless \
             FAKEROOT=true
 
-      - name: Make Repository Files for Sileo & Find Deb
-        run: |
-          mkdir -p public/debs
-          
-          find packages -name "*.deb" -exec cp -v {} public/debs/ \; 2>/dev/null || find . -name "*.deb" ! -path "./public/*" -exec cp -v {} public/debs/ \;
-          
-          if [ -z "$(ls -A public/debs)" ]; then
-             echo "Error: Không tìm thấy file .deb nào sau khi build!"
-             exit 1
-          fi
-          
-          cd public
-          dpkg-scanpackages -m debs /dev/null > Packages
-          bzip2 -9 -c Packages > Packages.bz2
-          zstd -c Packages > Packages.zst
-          
-          cat << 'EOF' > Release
-          Origin: VisibleIsland Repo
-          Label: VisibleIsland Repo
-          Suite: stable
-          Version: 1.0
-          Codename: ios
-          Architectures: iphoneos-arm64
-          Components: main
-          Description: Repository for VisibleIsland Tweak
-          EOF
-          cd ..
-
       - name: Upload Repository Artifact
         uses: actions/upload-artifact@v4
         with:
