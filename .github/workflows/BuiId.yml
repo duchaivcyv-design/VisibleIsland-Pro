@@ -11,8 +11,8 @@ env:
   THEOS: ${{ github.workspace }}/theos
 
 jobs:
-  build-rootless:
-    name: Build Rootless Package
+  build-package:
+    name: Build Package (Roothide & Rootless)
     runs-on: macos-15
 
     steps:
@@ -21,15 +21,20 @@ jobs:
 
     - name: Install Build Dependencies
       run: |
-        brew install ldid xz dpkg make cmake
+        brew install ldid xz dpkg make cmake zstd
 
-    - name: Setup Theos with iOS SDKs
+    - name: Setup Theos with iOS SDKs & RootHide Scheme
       run: |
         git clone --recursive --depth 1 https://github.com/theos/theos.git "$THEOS"
         mkdir -p "$THEOS/sdks"
         git clone --depth 1 https://github.com/theos/sdks.git /tmp/theos-sdks
         mv /tmp/theos-sdks/iPhoneOS*.sdk "$THEOS/sdks/"
-        echo "Available SDKs:"
+        
+        # Cài đặt roothide package scheme vào Theos
+        git clone --depth 1 https://github.com/roothide/Theos.git /tmp/roothide-theos
+        cp -rf /tmp/roothide-theos/makefiles/package/roothide* "$THEOS/makefiles/package/" 2>/dev/null || true
+        
+        echo "===> Available SDKs:"
         ls "$THEOS/sdks/"
 
     - name: Build Dobby (Universal arm64 + arm64e)
@@ -61,7 +66,7 @@ jobs:
         make -j$(sysctl -n hw.ncpu)
         cd ..
 
-        # --- Tự động tìm file libdobby.a (tránh lỗi sai đường dẫn của CMake) ---
+        # --- Tự động tìm file libdobby.a ---
         ARM64_LIB=$(find build_arm64 -name "libdobby.a" | head -n 1)
         ARM64E_LIB=$(find build_arm64e -name "libdobby.a" | head -n 1)
 
@@ -76,20 +81,25 @@ jobs:
         echo "===> Dobby architectures:"
         lipo -info "$GITHUB_WORKSPACE/vendor/dobby/libdobby.a"
 
-    - name: Compile and Package (Rootless)
+    - name: Compile and Package
       run: |
+        export PATH="$(brew --prefix make)/libexec/gnubin:$THEOS/bin:$PATH"
         make package FINALPACKAGE=1
 
     - name: Collect Packages
       run: |
         mkdir -p artifacts
-        find . -maxdepth 3 -name "*.deb" -exec cp {} artifacts/ \;
+        find packages/ .theos/packages/ . -maxdepth 3 -name "*.deb" -exec cp -v {} artifacts/ \; 2>/dev/null || true
         echo "===> Built packages:"
         ls -la artifacts/
+        if [ -z "$(ls -A artifacts/*.deb 2>/dev/null)" ]; then
+          echo "Error: Không tìm thấy file .deb nào sau khi build!"
+          exit 1
+        fi
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: packages-rootless
+        name: packages-deb
         path: artifacts/*.deb
         if-no-files-found: error
