@@ -8,23 +8,19 @@ on:
 jobs:
   build:
     name: Build .deb and Repo
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential fakeroot rsync curl git perl dpkg-dev bzip2 zstd unzip xz-utils sudo
-
-      - name: Install Theos via Official Script
+      - name: Install Packaging Dependencies & Setup Theos
         env:
           THEOS: ${{ github.workspace }}/theos
         run: |
-          export THEOS="$THEOS"
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          brew install fakeroot dpkg zstd
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          curl -fsSL https://github.com/theos/sdks/archive/master.tar.gz | tar -xz -C "$THEOS/sdks" --strip-components=1
 
       - name: Build package
         env:
@@ -37,10 +33,8 @@ jobs:
         run: |
           mkdir -p public/debs
           
-          # Quét và tìm mọi file .deb được sinh ra rồi copy vào thư mục public/debs
           find . -name "*.deb" ! -path "./public/*" -exec cp -v {} public/debs/ \;
           
-          # Kiểm tra nếu không có file .deb thì báo lỗi dừng workflow
           if [ -z "$(ls -A public/debs)" ]; then
              echo "Error: Không tìm thấy file .deb nào sau khi build!"
              exit 1
