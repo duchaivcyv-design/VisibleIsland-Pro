@@ -245,6 +245,68 @@ static BOOL lineDisabled;
     [self.pillContainer addSubview:self.glyphView];
 }
 
+@implementation NativeIslandGlyphController
+
++ (instancetype)sharedInstance {
+    static NativeIslandGlyphController *inst = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        inst = [[NativeIslandGlyphController alloc] init];
+    });
+    return inst;
+}
+
+- (void)setupNativeGlyphIfNeeded {
+    if (self.glyphWindow) return;
+
+    CGRect screenBounds = [UIScreen mainScreen].bounds;
+    self.glyphWindow = [[UIWindow alloc] initWithFrame:screenBounds];
+    self.glyphWindow.windowLevel = UIWindowLevelStatusBar + 600.0;
+    self.glyphWindow.backgroundColor = [UIColor clearColor];
+    self.glyphWindow.userInteractionEnabled = NO;
+    self.glyphWindow.hidden = NO;
+
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if ([scene isKindOfClass:[UIWindowScene class]]) {
+            self.glyphWindow.windowScene = (UIWindowScene *)scene;
+            break;
+        }
+    }
+
+    CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
+    CGFloat baseW = 126.0;
+    CGFloat baseH = 37.0;
+
+    self.pillContainer = [[UIView alloc] initWithFrame:CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH)];
+    self.pillContainer.backgroundColor = [UIColor blackColor];
+    self.pillContainer.layer.cornerRadius = baseH / 2.0;
+    self.pillContainer.layer.cornerCurve = kCACornerCurveContinuous;
+    self.pillContainer.clipsToBounds = YES;
+    self.pillContainer.alpha = 0.0;
+    [self.glyphWindow addSubview:self.pillContainer];
+
+    Class configClass = %c(LAUIPearlGlyphStaticConfiguration);
+    id saConfig = nil;
+    if ([configClass respondsToSelector:@selector(createSystemApertureConfiguration)]) {
+        saConfig = [configClass createSystemApertureConfiguration];
+    } else if ([configClass respondsToSelector:@selector(createDefaultConfiguration)]) {
+        saConfig = [configClass createDefaultConfiguration];
+    }
+
+    Class glyphClass = %c(LAUIPearlGlyphView);
+    if (saConfig && [glyphClass instancesRespondToSelector:@selector(initWithConfiguration:)]) {
+        self.glyphView = [[glyphClass alloc] initWithConfiguration:saConfig];
+    } else {
+        self.glyphView = [[glyphClass alloc] initWithFrame:CGRectMake(0, 0, 76, 76)];
+    }
+
+    self.glyphView.frame = CGRectMake(0, 0, 76, 76);
+    self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
+    self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
+    [self.glyphView setFeedbackEnabled:YES];
+    [self.pillContainer addSubview:self.glyphView];
+}
+
 - (void)showScanning {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self setupNativeGlyphIfNeeded];
@@ -252,12 +314,10 @@ static BOOL lineDisabled;
 
         CGRect screenBounds = [UIScreen mainScreen].bounds;
         CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
-        // KÍCH THƯỚC CHUẨN APPLE: Gọn gàng không bị to che widget
         CGFloat expandedW = 126.0;
         CGFloat expandedH = 80.0;
 
         [self.glyphView setFaceVisibility:YES animated:YES];
-        // Ép glyphView luôn render mượt mà, không bị freeze khi hiện passcode
         if ([self.glyphView respondsToSelector:@selector(setPaused:)]) {
             [(id)self.glyphView setPaused:NO];
         }
@@ -268,10 +328,45 @@ static BOOL lineDisabled;
             self.pillContainer.frame = CGRectMake((screenBounds.size.width - expandedW) / 2.0, topY, expandedW, expandedH);
             self.pillContainer.layer.cornerRadius = 38.0;
             self.glyphView.center = CGPointMake(expandedW / 2.0, expandedH / 2.0);
-            self.glyphView.transform = CGAffineTransformMakeScale(0.95, 0.95); // Thu nhỏ vừa khít viên thuốc
+            self.glyphView.transform = CGAffineTransformMakeScale(0.95, 0.95);
         } completion:nil];
 
         self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:3.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
+    });
+}
+
+- (void)showSuccess {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self setupNativeGlyphIfNeeded];
+        [self.dismissTimer invalidate];
+
+        if ([self.glyphView respondsToSelector:@selector(setPaused:)]) {
+            [(id)self.glyphView setPaused:NO];
+        }
+        [self.glyphView setState:2 animated:YES withCompletion:nil];
+
+        [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:1.0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+            self.glyphView.transform = CGAffineTransformMakeScale(1.15, 1.15);
+        } completion:nil];
+
+        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.2 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
+    });
+}
+
+- (void)showFailure {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self setupNativeGlyphIfNeeded];
+        [self.dismissTimer invalidate];
+
+        [self.glyphView setState:3 animated:YES withCompletion:nil];
+
+        CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
+        shake.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+        shake.duration = 0.45;
+        shake.values = @[@(-10), @(10), @(-8), @(8), @(-4), @(4), @(0)];
+        [self.pillContainer.layer addAnimation:shake forKey:@"shake"];
+
+        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
     });
 }
 
@@ -296,46 +391,8 @@ static BOOL lineDisabled;
     });
 }
 
-- (void)showFailure {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self setupNativeGlyphIfNeeded];
-        // Trạng thái lỗi (State 3: Lắc glyph)
-        [self.glyphView setState:3 animated:YES withCompletion:nil];
-
-        CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
-        shake.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
-        shake.duration = 0.45;
-        shake.values = @[@(-12), @(12), @(-9), @(9), @(-5), @(5), @(0)];
-        [self.pillContainer.layer addAnimation:shake forKey:@"shake"];
-
-        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
-    });
-}
-
-- (void)collapse {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        CGRect screenBounds = [UIScreen mainScreen].bounds;
-        CGFloat topY = posEnabled ? yPos : 20.5;
-        CGFloat baseW = 126.0;
-        CGFloat baseH = 37.0;
-
-        [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
-            self.pillContainer.frame = CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH);
-            self.pillContainer.layer.cornerRadius = baseH / 2.0;
-            self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
-            self.pillContainer.alpha = 0.0;
-        } completion:^(BOOL finished) {
-            if (finished) {
-                [self.glyphView setState:0 animated:NO withCompletion:nil];
-            }
-        }];
-    });
-}
-
 @end
-
-// ============================================================================
+====================================
 // HOOK HỆ THỐNG GỐC KÍCH HOẠT HIỆU ỨNG (MÀN HÌNH KHÓA + IN-APP + PASSCODE)
 // ============================================================================
 
