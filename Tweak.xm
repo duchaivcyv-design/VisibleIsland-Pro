@@ -210,69 +210,6 @@ static BOOL lineDisabled;
         }
     }
 
-    CGFloat topY = posEnabled ? yPos : 20.5;
-    CGFloat baseW = 126.0;
-    CGFloat baseH = 37.0;
-
-    self.pillContainer = [[UIView alloc] initWithFrame:CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH)];
-    self.pillContainer.backgroundColor = [UIColor blackColor];
-    self.pillContainer.layer.cornerRadius = baseH / 2.0;
-    self.pillContainer.layer.cornerCurve = kCACornerCurveContinuous;
-    self.pillContainer.clipsToBounds = YES;
-    self.pillContainer.alpha = 0.0;
-    [self.glyphWindow addSubview:self.pillContainer];
-
-    // Khởi tạo LAUIPearlGlyphView bằng cấu hình SystemAperture từ cache
-    Class configClass = %c(LAUIPearlGlyphStaticConfiguration);
-    id saConfig = nil;
-    if ([configClass respondsToSelector:@selector(createSystemApertureConfiguration)]) {
-        saConfig = [configClass createSystemApertureConfiguration];
-    } else if ([configClass respondsToSelector:@selector(createDefaultConfiguration)]) {
-        saConfig = [configClass createDefaultConfiguration];
-    }
-
-    Class glyphClass = %c(LAUIPearlGlyphView);
-    if (saConfig && [glyphClass instancesRespondToSelector:@selector(initWithConfiguration:)]) {
-        self.glyphView = [[glyphClass alloc] initWithConfiguration:saConfig];
-    } else {
-        self.glyphView = [[glyphClass alloc] initWithFrame:CGRectMake(0, 0, 76, 76)];
-    }
-
-    self.glyphView.frame = CGRectMake(0, 0, 76, 76);
-    self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
-    self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
-    [self.glyphView setFeedbackEnabled:YES];
-    [self.pillContainer addSubview:self.glyphView];
-}
-
-@implementation NativeIslandGlyphController
-
-+ (instancetype)sharedInstance {
-    static NativeIslandGlyphController *inst = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        inst = [[NativeIslandGlyphController alloc] init];
-    });
-    return inst;
-}
-
-- (void)setupNativeGlyphIfNeeded {
-    if (self.glyphWindow) return;
-
-    CGRect screenBounds = [UIScreen mainScreen].bounds;
-    self.glyphWindow = [[UIWindow alloc] initWithFrame:screenBounds];
-    self.glyphWindow.windowLevel = UIWindowLevelStatusBar + 600.0;
-    self.glyphWindow.backgroundColor = [UIColor clearColor];
-    self.glyphWindow.userInteractionEnabled = NO;
-    self.glyphWindow.hidden = NO;
-
-    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-        if ([scene isKindOfClass:[UIWindowScene class]]) {
-            self.glyphWindow.windowScene = (UIWindowScene *)scene;
-            break;
-        }
-    }
-
     CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
     CGFloat baseW = 126.0;
     CGFloat baseH = 37.0;
@@ -285,6 +222,7 @@ static BOOL lineDisabled;
     self.pillContainer.alpha = 0.0;
     [self.glyphWindow addSubview:self.pillContainer];
 
+    // Khởi tạo LAUIPearlGlyphView bằng cấu hình SystemAperture từ cache
     Class configClass = %c(LAUIPearlGlyphStaticConfiguration);
     id saConfig = nil;
     if ([configClass respondsToSelector:@selector(createSystemApertureConfiguration)]) {
