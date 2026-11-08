@@ -28,12 +28,52 @@ jobs:
         run: |
           export PATH="$(brew --prefix make)/libexec/gnubin:$THEOS/bin:$PATH"
           
-          # Sử dụng dm.pl nội bộ của Theos để đóng gói deb trực tiếp
-          # Gán FAKEROOT=true để không bị rỗng lệnh và không load dylib fakeroot lỗi của Homebrew
+          # Biên dịch và đóng gói bỏ qua fakeroot dylib injection
           make package \
             FINALPACKAGE=1 \
             THEOS_PACKAGE_SCHEME=rootless \
             FAKEROOT=true
+
+      - name: Make Repository Files for Sileo & Find Deb
+        run: |
+          mkdir -p public/debs
+          
+          # Theos tạo deb nằm trong thư mục ./packages/
+          if [ -d "packages" ]; then
+            cp -v packages/*.deb public/debs/ 2>/dev/null || true
+          fi
+          
+          # Quét thêm toàn bộ workspace phòng trường hợp lưu ở thư mục khác
+          find . -name "*.deb" ! -path "./public/*" -exec cp -v {} public/debs/ \;
+          
+          # Kiểm tra lại xem deb đã được tạo thành công chưa
+          if [ -z "$(ls -A public/debs 2>/dev/null)" ]; then
+             echo "Error: Không tìm thấy file .deb nào sau khi build!"
+             exit 1
+          fi
+          
+          cd public
+          dpkg-scanpackages -m debs /dev/null > Packages
+          bzip2 -9 -c Packages > Packages.bz2
+          zstd -c Packages > Packages.zst
+          
+          cat << 'EOF' > Release
+          Origin: VisibleIsland Repo
+          Label: VisibleIsland Repo
+          Suite: stable
+          Version: 1.0
+          Codename: ios
+          Architectures: iphoneos-arm64
+          Components: main
+          Description: Repository for VisibleIsland Tweak
+          EOF
+          cd ..
+
+      - name: Upload Repository Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository
+          path: public/
 
       - name: Upload Repository Artifact
         uses: actions/upload-artifact@v4
