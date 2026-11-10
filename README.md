@@ -1,76 +1,90 @@
 # VisibleIsland
-VisibleIsland brings a new and simple way to enable and configure the Dynamic Island on older devices.
 
-## Features:
-- Enable/disable the Dynamic Island with the flip of a switch
-- Fix the position of the Dynamic Island to be under the notch as opposed to halfway under it
-- Set the position of the Dynamic Island to anywhere you want using custom X and Y offsets
-- Hide the Dynamic Island when not in use
-- Fix the position of notification banners to below the island for better visibility
-- Set the position of notification banners to anywhere using custom X and Y offsets
-- Set the scale of the Dynamic Island to whatever size you like
-- Set the transparency of the Dynamic Island to exactly what you want
-- Customize the color of the Dynamic Island
+VisibleIsland mang đến một cách đơn giản để bật và tùy chỉnh Dynamic Island trên các thiết bị cũ.
 
-## Screenshots
+![iOS](https://img.shields.io/badge/iOS-16.0--16.6.1-blue)
+![Jailbreak](https://img.shields.io/badge/Jailbreak-rootless%20%7C%20roothide-purple)
 
-<img src="/Images/sc1.png" width="300" height="578"/> <img src="/Images/sc2.png" width="300" height="578"/> <img src="/Images/sc3.png" width="300" height="578"/> <img src="/Images/sc4.png" width="300" height="578"/> <img src="/Images/sc5.png" width="300" height="578"/> <img src="/Images/sc6.png" width="300" height="578"/>
+## Tính năng
 
-**Disclaimer**
+- Bật/tắt Dynamic Island chỉ với một công tắc
+- Căn chỉnh Dynamic Island nằm ngay dưới notch thay vì bị lệch một nửa
+- Tùy chỉnh vị trí Dynamic Island bằng offset X/Y tùy ý
+- Tự động ẩn Dynamic Island khi không sử dụng
+- Đưa notification banner xuống dưới island để dễ nhìn hơn
+- Tùy chỉnh vị trí notification banner bằng offset X/Y
+- Thay đổi kích thước (scale) Dynamic Island theo ý muốn
+- Tùy chỉnh độ trong suốt của Dynamic Island
+- Tùy chỉnh màu sắc Dynamic Island
+- Ẩn viền outline của Dynamic Island
 
-As of now, the option to fix the Dynamic Island position to directly under the notch is only officially supported on a few devices (list below), as I don't have a huge spectrum of devices to test on. If your device isn't fully compatible, use the custom positioning instead.
- 
+## Ảnh chụp màn hình
 
-## Fully supported devices:
+<p align="center">
+  <img src="/Images/sc1.png" width="300" height="578" alt="Screenshot 1"/>
+  <img src="/Images/sc2.png" width="300" height="578" alt="Screenshot 2"/>
+  <img src="/Images/sc3.png" width="300" height="578" alt="Screenshot 3"/>
+  <img src="/Images/sc4.png" width="300" height="578" alt="Screenshot 4"/>
+  <img src="/Images/sc5.png" width="300" height="578" alt="Screenshot 5"/>
+  <img src="/Images/sc6.png" width="300" height="578" alt="Screenshot 6"/>
+</p>
+
+## Lưu ý quan trọng
+
+Hiện tại, tính năng tự động căn Dynamic Island nằm ngay dưới notch chỉ được hỗ trợ chính thức trên một số thiết bị bên dưới, do mình chưa có điều kiện test trên nhiều dòng máy.
+
+Nếu thiết bị của bạn không nằm trong danh sách hỗ trợ đầy đủ, hãy sử dụng tính năng căn chỉnh vị trí tùy chỉnh bằng offset X/Y.
+
+## Thiết bị được hỗ trợ đầy đủ
+
 - iPhone X
 - iPhone XS
 - iPhone 11 Pro
 - iPhone 13
 - iPhone 13 Pro
 - iPhone 14
-  
-  
-**Note**
 
-Some devices are currently set up using "fake" offsets calculated by setting the resolution on a device with the same size notch and finding a good position for the island. I'm not sure if these will work correctly on these devices, but ideally they should. Here's a list of the "fake" offset devices below.
-  
-  
-## "Fake" offset devices:
+## Thiết bị dùng offset “giả lập”
+
+Một số thiết bị hiện đang sử dụng offset “giả lập”, được tính bằng cách đặt độ phân giải trên một thiết bị có cùng kích thước notch và tìm vị trí phù hợp cho island. Mình chưa chắc các offset này sẽ hoạt động chính xác trên tất cả thiết bị, nhưng về lý thuyết thì chúng nên hoạt động tốt.
+
+Danh sách thiết bị dùng offset “giả lập”:
+
 - iPhone XR
 - iPhone 11
 - iPhone XS Max
 - iPhone 11 Pro Max
 - iPhone 13 Mini
 - iPhone 13 Pro Max
- 
- 
-**Version/jailbreak compatibility**
 
-Full support for iOS 16.0 - 16.6.1 rootless or roothide (bootstrap + serotonin)
- 
- 
-**Coming soon:**
-- More official device support
-- iPad support (v2.1?)
-- Fix the status bar size to accommodate for the Dynamic Island (maybe)
+## Tương thích phiên bản iOS / jailbreak
 
-**Known issues (fixes soon):**
-- Black rectangle behind some elements (i.e. timer or FaceID unlock glyph) when using a custom color and/or transparency
-- Red status bar (😳 rdar:45025538) on iPhone XR and 11 - a separate fix already exists but I'll implement it into the tweak soon
+Hỗ trợ đầy đủ cho iOS 16.0 – 16.6.1, bao gồm rootless hoặc roothide (Bootstrap + Serotonin).
 
-## Release Notes:
+## Sắp ra mắt
 
-1.0-b1:
-- Initial beta release
+- Hỗ trợ chính thức thêm nhiều thiết bị
+- Hỗ trợ iPad (có thể trong v2.1?)
+- Sửa kích thước status bar để phù hợp hơn với Dynamic Island (có thể)
 
-1.1-b1:
-- Added a new option to disable the Dynamic Island when not in use
-- Added option to move notification banners to below the Dynamic Island
-- Added custom positioning for notification banners using custom X and Y offsets
+## Lỗi đã biết (sẽ sớm khắc phục)
 
-2.0:
-- Fixed a bug where the Dynamic Island would flicker and shake when "hide when not in use" is enabled
-- Added new options to customize the color of the Dynamic Island
-- Added a new option to hide the island outline
-- Added a new option to customize the scale of the Dynamic Island
-- Added a new option to set a custom transparency for the Dynamic Island
+- Xuất hiện hình chữ nhật đen phía sau một số thành phần (ví dụ: timer hoặc biểu tượng Face ID) khi dùng màu tùy chỉnh và/hoặc độ trong suốt tùy chỉnh
+- Status bar bị đỏ (😳 rdar:45025538) trên iPhone XR và iPhone 11 — đã có bản sửa riêng nhưng sẽ sớm được tích hợp vào tweak
+
+## Ghi chú phát hành
+
+### 1.0-b1
+- Bản beta đầu tiên
+
+### 1.1-b1
+- Thêm tùy chọn tắt Dynamic Island khi không sử dụng
+- Thêm tùy chọn đưa notification banner xuống dưới Dynamic Island
+- Thêm tùy chỉnh vị trí notification banner bằng offset X/Y
+
+### 2.0
+- Sửa lỗi Dynamic Island bị nhấp nháy và rung khi bật “Ẩn khi không sử dụng”
+- Thêm tùy chỉnh màu sắc Dynamic Island
+- Thêm tùy chọn ẩn viền outline của island
+- Thêm tùy chỉnh kích thước (scale) Dynamic Island
+- Thêm tùy chỉnh độ trong suốt của Dynamic Island
