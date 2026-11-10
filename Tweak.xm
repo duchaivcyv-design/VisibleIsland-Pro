@@ -72,18 +72,24 @@ static BOOL lineDisabled;
 @end
 
 @interface SBSystemAperturePearlAuthenticatingElement : NSObject
-+ (id)sharedInstance;
++ (instancetype)sharedInstance;
 - (void)activate;
 - (void)deactivate;
 - (void)setBioEvent:(unsigned long long)arg1;
+- (void)setBiometricEvent:(unsigned long long)arg1;
+- (BOOL)isAuthenticating;
+- (UIView *)elementView;
 @end
 
 @interface SBSystemApertureController : NSObject
 + (id)sharedInstance;
 - (BOOL)isPearlAvailable;
+- (BOOL)isPearlActive;
 - (BOOL)isElementReady:(id)arg1;
 - (id)acquireAssertionForReason:(id)arg1;
 - (void)registerElement:(id)arg1;
+- (void)element:(id)arg1 visibilityChanged:(BOOL)visible;
+- (id)activePearlElement;
 @end
 
 @interface SBUIBiometricResource : NSObject
@@ -92,6 +98,7 @@ static BOOL lineDisabled;
 - (BOOL)isPearlDetectEnabled;
 - (BOOL)isPearlAvailableForSystemAperture;
 - (BOOL)isPearlDetectDesired;
+- (BOOL)hasBiometricAuthenticationCapabilityMatchingType:(long long)arg1;
 - (void)_notifyObserversOfEvent:(unsigned long long)event;
 - (void)noteScreenWillTurnOn;
 @end
@@ -120,6 +127,7 @@ static BOOL lineDisabled;
 
 @interface SBLockScreenBiometricAuthenticationCoordinator : NSObject
 - (void)biometricResource:(id)resource observeEvent:(unsigned long long)event;
+- (void)_handleBiometricEvent:(unsigned long long)event;
 @end
 
 @interface SBFMobileKeyBag : NSObject
@@ -187,17 +195,24 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================================
-// HOOK ÉP BẬT ELEMENT DYNAMIC ISLAND PEARL GỐC CỦA APPLE CHO MỌI LOẠI BIOMETRIC
+// HOOK HỆ THỐNG GỐC: ÉP BẬT GIAO DIỆN DYNAMIC ISLAND PEARL GỐC CỦA IOS 16
 // ============================================================================
 
 #import <AudioToolbox/AudioServices.h>
 
 static BOOL isHandlingBioEvent = NO;
 
-// 1. Ép bật toàn bộ cờ nhận diện phần cứng & tính năng Pearl trên Dynamic Island
+// 1. Ép hệ thống chuyển định tuyến Touch ID -> Pearl (Face ID) cho Dynamic Island
 %hook SBFMobileKeyBag
 - (BOOL)hasPearl {
     return YES;
+}
+%end
+
+%hook BSPlatform
+// Ép SpringBoard nhận diện kiểu điều hướng tràn viền (Gesture), bỏ khóa cứng Home Button
+- (NSInteger)homeButtonType {
+    return 2; // HomeButtonTypeNone (iPhone X / 14 Pro style)
 }
 %end
 
@@ -214,6 +229,9 @@ static BOOL isHandlingBioEvent = NO;
 - (BOOL)isPearlDetectDesired {
     return YES;
 }
+- (BOOL)hasBiometricAuthenticationCapabilityMatchingType:(long long)arg1 {
+    return YES;
+}
 
 - (void)_notifyObserversOfEvent:(unsigned long long)event {
     %orig;
@@ -221,39 +239,42 @@ static BOOL isHandlingBioEvent = NO;
     if (isHandlingBioEvent) return;
     isHandlingBioEvent = YES;
 
-    // Chạm cảm biến vân tay / Face ID tweak / Quét khuôn mặt
+    // Chạm cảm biến / Face ID tweak quét mặt / Nhận diện vân tay
     if (event == 1 || event == 2 || event == 12 || event == 13) {
-        // Đánh thức element Face ID trên Dynamic Island bung nở ra
-        Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] activate];
-            [[authElementClass sharedInstance] setBioEvent:1];
+        // Đánh thức Dynamic Island mở rộng và xoay khuôn mặt xanh gốc
+        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+            [elem activate];
+            [elem setBiometricEvent:1];
         }
     } 
-    // Xác thực thành công (Khớp mặt/vân tay/in-app)
+    // Xác thực thành công (Khớp mặt/vân tay) -> Tích V + Tiếng Face ID
     else if (event == 3 || event == 4 || event == 14 || event == 15) {
-        AudioServicesPlaySystemSound(1394); // Âm thanh thành công gốc
-        Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] setBioEvent:4];
+        AudioServicesPlaySystemSound(1394);
+        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+            [elem setBiometricEvent:4];
         }
     } 
-    // Thất bại
+    // Quét thất bại -> Lắc đảo + Âm thanh lỗi
     else if (event == 9 || event == 10 || event == 11) {
-        AudioServicesPlaySystemSound(1395); // Âm thanh lỗi gốc
-        Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] setBioEvent:9];
+        AudioServicesPlaySystemSound(1395);
+        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+            [elem setBiometricEvent:9];
         }
     }
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         isHandlingBioEvent = NO;
     });
 }
 %end
 
-// 2. Ép Dynamic Island controller luôn chấp nhận và kích hoạt Pearl Element
+// 2. Ép SystemAperture nhận Pearl Element là Element cấp cao nhất (Primary UI)
 %hook SBSystemApertureController
 
 - (BOOL)isPearlAvailable {
@@ -264,25 +285,24 @@ static BOOL isHandlingBioEvent = NO;
     return YES;
 }
 
-%end
-
-// Ép Element sinh trắc học của Apple luôn ở trạng thái sẵn sàng hiển thị UI
-%hook SBPearlInterstitialsElement
-- (BOOL)isAuthenticating {
+- (BOOL)isPearlActive {
     return YES;
 }
+
 %end
 
-// 3. Lỗi 1: Bật nút nguồn / Mở sáng màn hình -> Kích hoạt ngay element trên đảo
+// 3. LỖI 1: Bấm nút nguồn / Bật sáng màn hình -> Kích hoạt ngay lập tức
 %hook CSCoverSheetViewController
 
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
     [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-    Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-    if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-        [[authElementClass sharedInstance] activate];
-        [[authElementClass sharedInstance] setBioEvent:1];
+    
+    Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+    if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+        SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+        [elem activate];
+        [elem setBiometricEvent:1];
     }
 }
 
@@ -299,9 +319,10 @@ static BOOL isHandlingBioEvent = NO;
     BOOL res = %orig;
     if (res) {
         AudioServicesPlaySystemSound(1394);
-        Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] setBioEvent:4];
+        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+            [elem setBiometricEvent:4];
         }
     }
     return res;
@@ -309,29 +330,31 @@ static BOOL isHandlingBioEvent = NO;
 
 %end
 
-// 4. Lỗi 2: Vuốt lên gõ Passcode -> Kích hoạt quét lần 2 trên đảo
+// 4. LỖI 2: Vuốt lên gõ Passcode -> Kích hoạt quét lần 2
 %hook SBUIPasscodeBiometricAuthenticationView
 
 - (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
     %orig;
     if (state == 1 || state == 2) {
         [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-        Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] activate];
-            [[authElementClass sharedInstance] setBioEvent:1];
+        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+            [elem activate];
+            [elem setBiometricEvent:1];
         }
     } else if (state == 3 || state == 0) {
-        Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] setBioEvent:9];
+        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+            [elem setBiometricEvent:9];
         }
     }
 }
 
 %end
 
-// 5. Lỗi 3: Điều hướng các app ngoài (Ảnh ẩn/xoá, Keychain, App Store, Apple Pay)
+// 5. LỖI 3: Điều hướng xác thực trong App (Ảnh ẩn/xoá, Keychain, App Store, Apple Pay)
 %hook SBBiometricMonitorPearlDataSource
 
 - (BOOL)isPosePresenceDetected {
@@ -341,28 +364,30 @@ static BOOL isHandlingBioEvent = NO;
 - (void)_setMatching:(BOOL)matching {
     %orig;
     if (matching) {
-        Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] activate];
-            [[authElementClass sharedInstance] setBioEvent:1];
+        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+            [elem activate];
+            [elem setBiometricEvent:1];
         }
     }
 }
 
 - (void)device:(id)device pearlEventOccurred:(long long)event {
     %orig;
-    Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
-    if (![authElementClass respondsToSelector:@selector(sharedInstance)]) return;
+    Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+    if (![pearlElemClass respondsToSelector:@selector(sharedInstance)]) return;
+    SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
 
     if (event == 1 || event == 2) {
-        [[authElementClass sharedInstance] activate];
-        [[authElementClass sharedInstance] setBioEvent:1];
+        [elem activate];
+        [elem setBiometricEvent:1];
     } else if (event == 4) {
         AudioServicesPlaySystemSound(1394);
-        [[authElementClass sharedInstance] setBioEvent:4];
+        [elem setBiometricEvent:4];
     } else if (event == 8 || event == 9) {
         AudioServicesPlaySystemSound(1395);
-        [[authElementClass sharedInstance] setBioEvent:9];
+        [elem setBiometricEvent:9];
     }
 }
 
@@ -912,24 +937,22 @@ void preferencesChanged(){
 }
 
 static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    Class authElementClass = %c(SBSystemAperturePearlAuthenticatingElement);
+    Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
+    SBSystemAperturePearlAuthenticatingElement *elem = nil;
+    if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
+        elem = [pearlElemClass sharedInstance];
+    }
 
     if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.scanning"))) {
         [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] activate];
-            [[authElementClass sharedInstance] setBioEvent:1];
-        }
+        [elem activate];
+        [elem setBiometricEvent:1];
     } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.success"))) {
         AudioServicesPlaySystemSound(1394);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] setBioEvent:4];
-        }
+        [elem setBiometricEvent:4];
     } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.failure"))) {
         AudioServicesPlaySystemSound(1395);
-        if ([authElementClass respondsToSelector:@selector(sharedInstance)]) {
-            [[authElementClass sharedInstance] setBioEvent:9];
-        }
+        [elem setBiometricEvent:9];
     }
 }
 
