@@ -56,29 +56,14 @@ static BOOL lineDisabled;
 @interface SBFTouchPassThroughView : UIView
 @end
 
-@interface LAUIPearlGlyphStaticConfiguration : NSObject
-+ (id)createSystemApertureConfiguration;
-+ (id)createDefaultConfiguration;
-@end
-
-@interface LAUIPearlGlyphView : UIView
-- (id)initWithConfiguration:(id)arg1;
-- (void)setState:(NSInteger)state animated:(BOOL)animated withCompletion:(id)completion;
-- (void)setFaceVisibility:(BOOL)arg1 animated:(BOOL)arg2;
-- (void)setFeedbackEnabled:(BOOL)arg1;
-- (void)setPaused:(BOOL)arg1;
-- (BOOL)isPaused;
-// Bổ sung method đổi màu xanh neon gốc và màu xám chì khi lockout (Lỗi 1 & Lỗi 2)
-- (void)setFinishedColor:(UIColor *)color animated:(BOOL)animated;
-- (void)setIdleColor:(UIColor *)color animated:(BOOL)animated;
-@end
-
 @interface SBUIBiometricResource : NSObject
 + (id)sharedInstance;
 - (BOOL)hasPearlSupport;
 - (BOOL)isPearlDetectEnabled;
 - (BOOL)isPearlAvailableForSystemAperture;
+- (BOOL)isPearlDetectDesired;
 - (void)_notifyObserversOfEvent:(unsigned long long)event;
+- (void)noteScreenWillTurnOn;
 @end
 
 @interface SBLockScreenManager : NSObject
@@ -90,17 +75,14 @@ static BOOL lineDisabled;
 @end
 
 @interface SBUIProudLockIconView : UIView
-- (LAUIPearlGlyphView *)_pearlGlyphView;
 - (void)setState:(NSInteger)state animated:(BOOL)animated;
 @end
 
-// Bắt sự kiện trong App (Ảnh ẩn/xoá, Keychain, App Store, Apple Pay)
 @interface SBBiometricMonitorPearlDataSource : NSObject
 - (void)_setMatching:(BOOL)arg1;
 - (void)device:(id)arg1 pearlEventOccurred:(long long)arg2;
 @end
 
-// Bắt sự kiện vuốt lên nhập mã PIN / Passcode
 @interface SBUIPasscodeBiometricAuthenticationView : UIView
 - (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated;
 @end
@@ -109,7 +91,6 @@ static BOOL lineDisabled;
 - (void)biometricResource:(id)resource observeEvent:(unsigned long long)event;
 @end
 
-// Cờ nhận diện phần cứng Pearl
 @interface SBFMobileKeyBag : NSObject
 - (BOOL)hasPearl;
 @end
@@ -118,19 +99,12 @@ static BOOL lineDisabled;
 - (NSInteger)homeButtonType;
 @end
 
-// BỔ SUNG MỚI: Bắt sự kiện bấm nút nguồn sáng màn hình (Lỗi 1)
-@interface SBBacklightController : NSObject
-- (void)turnOnScreenFullyWithReason:(id)arg1;
-@end
-
-// BỔ SUNG MỚI: Bắt cử chỉ vuốt thanh LockScreen lên (Lỗi 2)
 @interface CSCoverSheetViewController : UIViewController
 @end
 
-// BỔ SUNG MỚI: Bắt sự kiện App bên thứ ba gọi Face ID / Mục ẩn / App Store (Lỗi 3)
-@interface LAContext : NSObject
-- (void)evaluatePolicy:(long long)policy localizedReason:(id)reason reply:(id)reply;
-- (void)evaluateAccessControl:(id)accessControl operation:(long long)operation options:(id)options reply:(id)reply;
+@interface SBSystemApertureController : NSObject
++ (id)sharedInstance;
+- (BOOL)isPearlAvailable;
 @end
 
 @interface Model : NSObject
@@ -187,377 +161,101 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================================
-// BỘ QUẢN LÝ GLYPH FACE ID NATIVE DÀNH CHO SYSTEM APERTURE
-// ============================================================================
-@interface NativeIslandGlyphController : NSObject
-@property (nonatomic, strong) UIWindow *glyphWindow;
-@property (nonatomic, strong) UIView *pillContainer;
-@property (nonatomic, strong) LAUIPearlGlyphView *glyphView;
-@property (nonatomic, strong) NSTimer *dismissTimer;
-+ (instancetype)sharedInstance;
-- (void)showScanning;
-- (void)showSuccess;
-- (void)showFailure;
-- (void)collapse;
-@end
-
-@implementation NativeIslandGlyphController
-
-+ (instancetype)sharedInstance {
-    static NativeIslandGlyphController *inst = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        inst = [[NativeIslandGlyphController alloc] init];
-    });
-    return inst;
-}
-
-- (void)setupNativeGlyphIfNeeded {
-    if (self.pillContainer) return;
-
-    // Tìm trực tiếp cửa sổ Dynamic Island gốc của hệ thống để nhúng vào, KHÔNG tạo UIWindow đè lên
-    UIWindow *targetWindow = nil;
-    for (UIWindow *w in [UIApplication sharedApplication].windows) {
-        if ([w isKindOfClass:%c(SBSystemApertureWindow)]) {
-            targetWindow = w;
-            break;
-        }
-    }
-    if (!targetWindow) {
-        targetWindow = [UIApplication sharedApplication].keyWindow;
-    }
-    if (!targetWindow) return;
-
-    CGRect screenBounds = [UIScreen mainScreen].bounds;
-    CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
-    CGFloat baseW = 126.0;
-    CGFloat baseH = 37.0;
-
-    // Container đen trùng khít với Dynamic Island gốc lúc ở trạng thái nghỉ
-    self.pillContainer = [[UIView alloc] initWithFrame:CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH)];
-    self.pillContainer.backgroundColor = [UIColor blackColor];
-    self.pillContainer.layer.cornerRadius = baseH / 2.0;
-    self.pillContainer.layer.cornerCurve = kCACornerCurveContinuous;
-    self.pillContainer.clipsToBounds = YES;
-    self.pillContainer.alpha = 0.0;
-    self.pillContainer.userInteractionEnabled = NO;
-
-    [targetWindow addSubview:self.pillContainer];
-
-    // Khởi tạo glyph view khuôn mặt gốc
-    Class configClass = %c(LAUIPearlGlyphStaticConfiguration);
-    id saConfig = nil;
-    if ([configClass respondsToSelector:@selector(createSystemApertureConfiguration)]) {
-        saConfig = [configClass createSystemApertureConfiguration];
-    } else if ([configClass respondsToSelector:@selector(createDefaultConfiguration)]) {
-        saConfig = [configClass createDefaultConfiguration];
-    }
-
-    Class glyphClass = %c(LAUIPearlGlyphView);
-    if (saConfig && [glyphClass instancesRespondToSelector:@selector(initWithConfiguration:)]) {
-        self.glyphView = [[glyphClass alloc] initWithConfiguration:saConfig];
-    } else if (glyphClass) {
-        self.glyphView = [[glyphClass alloc] initWithFrame:CGRectMake(0, 0, 76, 76)];
-    }
-
-    if (self.glyphView) {
-        // Ép màu xanh neon khuôn mặt Apple gốc (Lỗi 1)
-        UIColor *applePearlGreen = [UIColor colorWithRed:0.35 green:0.98 blue:0.48 alpha:1.0];
-        if ([self.glyphView respondsToSelector:@selector(setFinishedColor:animated:)]) {
-            [(id)self.glyphView setFinishedColor:applePearlGreen animated:NO];
-        }
-        if ([self.glyphView respondsToSelector:@selector(setIdleColor:animated:)]) {
-            [(id)self.glyphView setIdleColor:applePearlGreen animated:NO];
-        }
-
-        self.glyphView.frame = CGRectMake(0, 0, 76, 76);
-        self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
-        self.glyphView.transform = CGAffineTransformMakeScale(0.2, 0.2);
-        if ([self.glyphView respondsToSelector:@selector(setFeedbackEnabled:)]) {
-            [self.glyphView setFeedbackEnabled:YES];
-        }
-        [self.pillContainer addSubview:self.glyphView];
-    }
-}
-
-// LỖI 1 & LỖI 5: Đảo nảy nở to ra từ viên thuốc gốc (156x156 chuẩn ảnh) và bắn ra mặt xanh
-- (void)showScanning {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self setupNativeGlyphIfNeeded];
-        if (!self.pillContainer || !self.glyphView) return;
-
-        [self.dismissTimer invalidate];
-
-        CGRect screenBounds = [UIScreen mainScreen].bounds;
-        CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
-        
-        // Khung bung to chuẩn hình ảnh
-        CGFloat expandedW = 156.0;
-        CGFloat expandedH = 156.0;
-
-        // Trả lại màu xanh neon nếu lần trước bị xám
-        UIColor *applePearlGreen = [UIColor colorWithRed:0.35 green:0.98 blue:0.48 alpha:1.0];
-        if ([self.glyphView respondsToSelector:@selector(setIdleColor:animated:)]) {
-            [(id)self.glyphView setIdleColor:applePearlGreen animated:NO];
-        }
-
-        if ([self.glyphView respondsToSelector:@selector(setFaceVisibility:animated:)]) {
-            [self.glyphView setFaceVisibility:YES animated:YES];
-        }
-        if ([self.glyphView respondsToSelector:@selector(setPaused:)]) {
-            [(id)self.glyphView setPaused:NO];
-        }
-        
-        // State 1: Bắt đầu xoay quả cầu xanh gốc
-        [self.glyphView setState:1 animated:YES withCompletion:nil];
-
-        [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.8 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.pillContainer.alpha = 1.0;
-            self.pillContainer.frame = CGRectMake((screenBounds.size.width - expandedW) / 2.0, topY, expandedW, expandedH);
-            self.pillContainer.layer.cornerRadius = 42.0;
-            self.glyphView.center = CGPointMake(expandedW / 2.0, expandedH / 2.0);
-            
-            // Giữ quả cầu xoay nhỏ gọn cân đối
-            self.glyphView.transform = CGAffineTransformMakeScale(0.54, 0.54);
-        } completion:nil];
-
-        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:3.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
-    });
-}
-
-// LỖI 4: ÉP NỔ DẤU TÍCH V THÀNH CÔNG VÀ GIỮ LẠI ĐỦ NHỊP TRƯỚC KHI THU VỀ ĐẢO
-- (void)showSuccess {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self setupNativeGlyphIfNeeded];
-        if (!self.pillContainer || !self.glyphView) return;
-
-        [self.dismissTimer invalidate];
-
-        if ([self.glyphView respondsToSelector:@selector(setPaused:)]) {
-            [(id)self.glyphView setPaused:NO];
-        }
-        
-        // State 2: Native Apple Checkmark (Dấu tích V)
-        [self.glyphView setState:2 animated:YES withCompletion:nil];
-
-        [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:1.0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.glyphView.transform = CGAffineTransformMakeScale(0.62, 0.62);
-        } completion:nil];
-
-        // Đợi trọn vẹn 1.3 giây để thấy rõ dấu tích V rồi mới đóng đảo
-        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.3 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
-    });
-}
-
-// LỖI 1: Quét thất bại -> Glyph lắc lư và khung đảo rung theo chuẩn Apple
-- (void)showFailure {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self setupNativeGlyphIfNeeded];
-        if (!self.pillContainer || !self.glyphView) return;
-
-        [self.dismissTimer invalidate];
-        
-        // State 3: Native Shake Error của Apple
-        [self.glyphView setState:3 animated:YES withCompletion:nil];
-
-        CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
-        shake.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
-        shake.duration = 0.45;
-        shake.values = @[@(-12), @(12), @(-9), @(9), @(-5), @(5), @(0)];
-        [self.pillContainer.layer addAnimation:shake forKey:@"shake"];
-
-        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
-    });
-}
-
-// LỖI 2: Quét lần 2 thất bại -> Chuyển màu xám chì gốc rồi nhẹ nhàng thu gọn
-- (void)showGrayLockout {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self setupNativeGlyphIfNeeded];
-        if (!self.pillContainer || !self.glyphView) return;
-
-        [self.dismissTimer invalidate];
-
-        UIColor *grayColor = [UIColor colorWithWhite:0.55 alpha:0.8];
-        if ([self.glyphView respondsToSelector:@selector(setIdleColor:animated:)]) {
-            [(id)self.glyphView setIdleColor:grayColor animated:YES];
-        }
-        if ([self.glyphView respondsToSelector:@selector(setFinishedColor:animated:)]) {
-            [(id)self.glyphView setFinishedColor:grayColor animated:YES];
-        }
-
-        [self.glyphView setState:0 animated:YES withCompletion:nil];
-        self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:0.8 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
-    });
-}
-
-// LỖI 5: Thu gọn hoàn toàn về lại hình dáng Dynamic Island ban đầu
-- (void)collapse {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!self.pillContainer || !self.glyphView) return;
-
-        CGRect screenBounds = [UIScreen mainScreen].bounds;
-        CGFloat topY = posEnabled ? yPos : [Model defaultIslandYOffset];
-        CGFloat baseW = 126.0;
-        CGFloat baseH = 37.0;
-
-        [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0.5 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.glyphView.transform = CGAffineTransformMakeScale(0.2, 0.2);
-            self.pillContainer.frame = CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH);
-            self.pillContainer.layer.cornerRadius = baseH / 2.0;
-            self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
-            self.pillContainer.alpha = 0.0;
-        } completion:^(BOOL finished) {
-            if (finished) {
-                [self.glyphView setState:0 animated:NO withCompletion:nil];
-            }
-        }];
-    });
-}
-
-@end
-
-// ============================================================================
-// HOOK HỆ THỐNG GỐC: ÉP BẬT 5 HIỆU ỨNG CHUẨN GỐC
+// HOOK HỆ THỐNG GỐC: ÉP BẬT CƠ CHẾ DYNAMIC ISLAND PEARL GỐC CỦA IOS 16
 // ============================================================================
 
-static BOOL isHandlingBioEvent = NO;
+#import <AudioToolbox/AudioServices.h>
 
 %hook SBFMobileKeyBag
+// Ép nhận diện phần cứng Face ID (Pearl)
 - (BOOL)hasPearl {
     return YES;
 }
 %end
 
 %hook SBUIBiometricResource
+// Ép SpringBoard nhận cờ Pearl cho Dynamic Island (System Aperture)
 - (BOOL)hasPearlSupport {
     return YES;
 }
 - (BOOL)isPearlDetectEnabled {
     return YES;
 }
+- (BOOL)isPearlAvailableForSystemAperture {
+    return YES;
+}
+- (BOOL)isPearlDetectDesired {
+    return YES;
+}
 
 - (void)_notifyObserversOfEvent:(unsigned long long)event {
     %orig;
 
-    if (isHandlingBioEvent) return;
-    isHandlingBioEvent = YES;
-
-    // Bắt sự kiện quét sinh trắc học
-    if (event == 1 || event == 2 || event == 12 || event == 13) {
-        [[NativeIslandGlyphController sharedInstance] showScanning];
+    // LỖI 4: Phát âm thanh thành công gốc của Face ID (1394)
+    if (event == 3 || event == 4 || event == 14 || event == 15) {
+        AudioServicesPlaySystemSound(1394);
     } 
-    // LỖI 4: Xác thực thành công -> Bật ngay dấu tích V
-    else if (event == 3 || event == 4 || event == 14 || event == 15) {
-        [[NativeIslandGlyphController sharedInstance] showSuccess];
-    } 
-    // LỖI 1: Thất bại -> Lắc đảo
+    // LỖI 1: Phát âm thanh lỗi rung lắc gốc của Face ID (1395)
     else if (event == 9 || event == 10 || event == 11) {
-        [[NativeIslandGlyphController sharedInstance] showFailure];
+        AudioServicesPlaySystemSound(1395);
     }
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        isHandlingBioEvent = NO;
-    });
 }
 %end
 
-// LỖI 1: Bấm nút nguồn mở sáng màn hình -> Nhảy khuôn mặt xanh ra từ đảo ngay lập tức
-%hook SBLockScreenManager
+// Ép Dynamic Island controller luôn ưu tiên hiển thị Face ID
+%hook SBSystemApertureController
+- (BOOL)isPearlAvailable {
+    return YES;
+}
+%end
 
-- (void)_finishUIUnlockFromSource:(int)source withOptions:(id)options {
-    [[NativeIslandGlyphController sharedInstance] showSuccess];
+// LỖI 1: Nhấn nút nguồn sáng màn hình -> Kích hoạt Pearl Detect của Dynamic Island
+%hook CSCoverSheetViewController
+- (void)viewWillAppear:(BOOL)animated {
     %orig;
+    [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+}
+%end
+
+%hook SBLockScreenManager
+- (void)lockUIFromSource:(int)source withOptions:(id)options {
+    %orig;
+    [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
 }
 
 - (BOOL)unlockUIFromSource:(int)source withOptions:(id)options {
     BOOL res = %orig;
     if (res) {
-        [[NativeIslandGlyphController sharedInstance] showSuccess];
+        AudioServicesPlaySystemSound(1394);
     }
     return res;
 }
-
-- (void)lockUIFromSource:(int)source withOptions:(id)options {
-    %orig;
-    [[NativeIslandGlyphController sharedInstance] showScanning];
-}
-
 %end
 
-// Bắt sự kiện sáng màn hình (Nút nguồn / Nhấn sáng) an toàn tuyệt đối
-%hook CSCoverSheetViewController
-
-- (void)viewWillAppear:(BOOL)animated {
-    %orig;
-    [[NativeIslandGlyphController sharedInstance] showScanning];
-}
-
-%end
-
-// Đồng bộ icon ổ khóa
-%hook SBUIProudLockIconView
-- (void)setState:(NSInteger)state animated:(BOOL)animated {
-    %orig;
-    if (state == 1) {
-        [[NativeIslandGlyphController sharedInstance] showScanning];
-    } else if (state == 2) {
-        [[NativeIslandGlyphController sharedInstance] showSuccess];
-    }
-}
-%end
-
-// LỖI 2: Vuốt lên gõ Passcode quét lần 2 & Xám chì khi thất bại
+// LỖI 2: Vuốt lên gõ Passcode -> Kích hoạt quét lần 2 trên Dynamic Island
 %hook SBUIPasscodeBiometricAuthenticationView
-
 - (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
     %orig;
     if (state == 1 || state == 2) {
-        // Vuốt lên quét lần 2
-        [[NativeIslandGlyphController sharedInstance] showScanning];
-    } else if (state == 3 || state == 0) {
-        // Thất bại lần 2 -> Chuyển màu xám chì rồi thu vào đảo
-        [[NativeIslandGlyphController sharedInstance] showGrayLockout];
-    }
-}
-
-%end
-
-%hook SBLockScreenBiometricAuthenticationCoordinator
-- (void)biometricResource:(id)resource observeEvent:(unsigned long long)event {
-    %orig;
-    if (event == 4 || event == 3) {
-        [[NativeIslandGlyphController sharedInstance] showSuccess];
-    } else if (event == 1 || event == 2 || event == 13) {
-        [[NativeIslandGlyphController sharedInstance] showScanning];
+        [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
     }
 }
 %end
 
-// LỖI 3: Bắt xác thực trong App (Mục ẩn của Ảnh, App Store, Apple Pay, Mật khẩu Keychain)
+// LỖI 3: Điều hướng các yêu cầu xác thực trong App (Ảnh ẩn/xoá, Keychain, App Store, Apple Pay)
 %hook SBBiometricMonitorPearlDataSource
-
+- (BOOL)isPosePresenceDetected {
+    return YES;
+}
 - (void)_setMatching:(BOOL)matching {
     %orig;
-    if (matching) {
-        [[NativeIslandGlyphController sharedInstance] showScanning];
-    }
 }
+%end
 
-- (void)device:(id)device pearlEventOccurred:(long long)event {
-    %orig;
-    if (event == 1 || event == 2) {
-        // App gọi Face ID -> Bung đảo quét
-        [[NativeIslandGlyphController sharedInstance] showScanning];
-    } else if (event == 4) {
-        // App xác thực thành công -> Nổ tích V
-        [[NativeIslandGlyphController sharedInstance] showSuccess];
-    } else if (event == 8 || event == 9) {
-        // App từ chối / thất bại
-        [[NativeIslandGlyphController sharedInstance] showFailure];
-    }
+%hook SBSystemApertureBiometricAuthenticator
+- (BOOL)isAvailable {
+    return YES;
 }
-
 %end
 
 // ============================================================================
