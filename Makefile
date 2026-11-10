@@ -11,10 +11,11 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = VisibleIsland
 
 VisibleIsland_FILES = Tweak.xm
-VisibleIsland_FRAMEWORKS = UIKit Foundation CoreGraphics LocalAuthentication
+VisibleIsland_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore LocalAuthentication
 VisibleIsland_PRIVATE_FRAMEWORKS = BiometricKitUI
 
-VisibleIsland_CFLAGS = -fobjc-arc
+# Cờ biên dịch an toàn cho cả Objective-C ARC và không bị dừng vì warning
+VisibleIsland_CFLAGS = -fobjc-arc -Wno-error -Wno-deprecated-declarations
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
