@@ -79,6 +79,8 @@ static BOOL lineDisabled;
 - (void)handleBiometricEvent:(unsigned long long)event;
 - (void)biometricResource:(id)resource observeEvent:(unsigned long long)event;
 - (void)setAuthenticated:(BOOL)authenticated;
+- (BOOL)hasAlertBehavior;
+- (BOOL)isAlerting;
 @end
 
 @interface SBSystemApertureSceneElement : NSObject
@@ -109,6 +111,8 @@ static BOOL lineDisabled;
 - (id)acquireAssertionForReason:(id)arg1;
 - (void)registerElement:(id)arg1;
 - (void)element:(id)arg1 visibilityChanged:(BOOL)visible;
+- (void)elementRequestsUpdateToPreferredLayoutMode:(id)arg1;
+- (void)elementRequestsUpdateToPreferredLayoutMode:(id)arg1 forReason:(id)arg2;
 - (id)activePearlElement;
 @end
 
@@ -220,25 +224,33 @@ static BOOL lineDisabled;
 // ============================================================================
 
 static SBLockElementViewProvider *activeLockElementProvider = nil;
+static BOOL isBioActive = NO;
 static BOOL isHandlingBioEvent = NO;
 
-// 1. Ép SystemAperture cấp quyền cho Element mở rộng (Mode 3 = Alerting / Expanded)
+// 1. Ép SystemAperture cấp quyền cho Element mở rộng toàn diện (Alerting & Expanded)
 %hook SBSystemApertureElementAuthority
 
 - (BOOL)systemApertureApertureElementAuthority:(id)authority isActivityElementAlerting:(id)element {
-    return YES;
+    if (isBioActive) return YES;
+    return %orig;
 }
 
 - (BOOL)systemApertureApertureElementAuthority:(id)authority isElementExpandedDueToUserInteraction:(id)element {
-    return YES;
+    if (isBioActive) return YES;
+    return %orig;
 }
 
 - (BOOL)systemApertureApertureElementAuthority:(id)authority isElementRequiredToRemainVisible:(id)element {
-    return YES;
+    if (isBioActive) return YES;
+    return %orig;
 }
 
+// Khi đang trong tiến trình sinh trắc học -> Ép trả về Mode 3 (Expanded)
 - (long long)systemApertureApertureElementAuthority:(id)authority preferredLayoutModeForElement:(id)element {
-    return 3; // Ép bung to tối đa chuẩn giao diện Face ID gốc
+    if (isBioActive) {
+        return 3;
+    }
+    return %orig;
 }
 
 - (unsigned long long)systemApertureApertureElementAuthorityMaximumNumberOfSimultaneouslyVisibleElements:(id)authority {
@@ -264,7 +276,7 @@ static BOOL isHandlingBioEvent = NO;
     return YES;
 }
 
-// Chặn không cho tự ý báo đã mở khóa khi máy vẫn đang ở màn hình khóa
+// Chặn không cho tự ý báo đã mở khóa khi máy vẫn đang ở trạng thái khóa
 - (void)setAuthenticated:(BOOL)authenticated {
     SBLockScreenManager *lsm = [%c(SBLockScreenManager) sharedInstance];
     if (lsm && [lsm isUILocked] && authenticated) {
@@ -272,6 +284,15 @@ static BOOL isHandlingBioEvent = NO;
     } else {
         %orig(authenticated);
     }
+}
+
+// Ép provider luôn hỗ trợ giao diện mở rộng
+- (BOOL)hasAlertBehavior {
+    return YES;
+}
+
+- (BOOL)isAlerting {
+    return isBioActive;
 }
 
 %end
@@ -320,35 +341,50 @@ static BOOL isHandlingBioEvent = NO;
     if (isHandlingBioEvent) return;
     isHandlingBioEvent = YES;
 
-    // Đẩy sự kiện trực tiếp vào Provider quản lý đảo
-    if (activeLockElementProvider) {
-        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-            [activeLockElementProvider handleBiometricEvent:event];
-        }
-        if ([activeLockElementProvider respondsToSelector:@selector(biometricResource:observeEvent:)]) {
-            [activeLockElementProvider biometricResource:self observeEvent:event];
-        }
-    }
-
     // Chạm cảm biến vân tay (Touch ID) / Tweak Face ID quét khuôn mặt
     if (event == 1 || event == 2 || event == 12 || event == 13) {
-        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-            [activeLockElementProvider setAuthenticated:NO];
+        isBioActive = YES;
+        if (activeLockElementProvider) {
+            if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+                [activeLockElementProvider setAuthenticated:NO];
+            }
+            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                [activeLockElementProvider handleBiometricEvent:event];
+            }
+            if ([activeLockElementProvider respondsToSelector:@selector(biometricResource:observeEvent:)]) {
+                [activeLockElementProvider biometricResource:self observeEvent:event];
+            }
         }
     }
     // Xác thực thành công (Khớp vân tay/khuôn mặt/in-app) -> Tích V + Chuông Face ID gốc
     else if (event == 3 || event == 4 || event == 14 || event == 15) {
         AudioServicesPlaySystemSound(1394);
-        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-            [activeLockElementProvider setAuthenticated:YES];
+        if (activeLockElementProvider) {
+            if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+                [activeLockElementProvider setAuthenticated:YES];
+            }
+            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                [activeLockElementProvider handleBiometricEvent:event];
+            }
         }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            isBioActive = NO;
+        });
     } 
     // Quét thất bại / Sai vân tay / Sai mặt -> Rung lắc đảo + Chuông lỗi gốc
     else if (event == 9 || event == 10 || event == 11) {
         AudioServicesPlaySystemSound(1395);
-        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-            [activeLockElementProvider setAuthenticated:NO];
+        if (activeLockElementProvider) {
+            if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+                [activeLockElementProvider setAuthenticated:NO];
+            }
+            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                [activeLockElementProvider handleBiometricEvent:event];
+            }
         }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            isBioActive = NO;
+        });
     }
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -357,11 +393,12 @@ static BOOL isHandlingBioEvent = NO;
 }
 %end
 
-// 4. LỖI 1: Bật nút nguồn / Mở sáng màn hình -> Bung quét ngay trên đảo
+// 4. LỖI 1: Bật nút nguồn / Mở sáng màn hình -> Kích hoạt quét trên đảo
 %hook CSCoverSheetViewController
 
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
+    isBioActive = YES;
     [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
     if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
         [activeLockElementProvider handleBiometricEvent:1];
@@ -374,6 +411,7 @@ static BOOL isHandlingBioEvent = NO;
 
 - (void)lockUIFromSource:(int)source withOptions:(id)options {
     %orig;
+    isBioActive = YES;
     [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
     if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
         [activeLockElementProvider handleBiometricEvent:1];
@@ -392,6 +430,9 @@ static BOOL isHandlingBioEvent = NO;
                 [activeLockElementProvider handleBiometricEvent:4];
             }
         }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            isBioActive = NO;
+        });
     }
     return res;
 }
@@ -404,14 +445,19 @@ static BOOL isHandlingBioEvent = NO;
 - (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
     %orig;
     if (state == 1 || state == 2) {
+        isBioActive = YES;
         [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
         if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
             [activeLockElementProvider handleBiometricEvent:1];
         }
     } else if (state == 3 || state == 0) {
+        AudioServicesPlaySystemSound(1395);
         if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
             [activeLockElementProvider handleBiometricEvent:9];
         }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            isBioActive = NO;
+        });
     }
 }
 
@@ -426,8 +472,9 @@ static BOOL isHandlingBioEvent = NO;
 
 - (void)_setMatching:(BOOL)matching {
     %orig;
-    if (matching && activeLockElementProvider) {
-        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+    if (matching) {
+        isBioActive = YES;
+        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
             [activeLockElementProvider handleBiometricEvent:1];
         }
     }
@@ -438,6 +485,7 @@ static BOOL isHandlingBioEvent = NO;
     if (!activeLockElementProvider) return;
 
     if (event == 1 || event == 2) {
+        isBioActive = YES;
         if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
             [activeLockElementProvider handleBiometricEvent:1];
         }
@@ -449,6 +497,9 @@ static BOOL isHandlingBioEvent = NO;
         if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
             [activeLockElementProvider handleBiometricEvent:4];
         }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            isBioActive = NO;
+        });
     } else if (event == 8 || event == 9) {
         AudioServicesPlaySystemSound(1395);
         if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
@@ -457,6 +508,9 @@ static BOOL isHandlingBioEvent = NO;
         if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
             [activeLockElementProvider handleBiometricEvent:9];
         }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            isBioActive = NO;
+        });
     }
 }
 
@@ -466,19 +520,6 @@ static BOOL isHandlingBioEvent = NO;
 // GIỮ NGUYÊN HOÀN TOÀN TẤT CẢ CÁC HOOK CỦA VISIBLEISLAND (BỔ SUNG CHỐNG ĐÈ LỖI 5)
 // ============================================================================
 %hook SBSystemApertureWindow
-
-- (void)didMoveToWindow {
-    %orig;
-    // LỖI 5: Tự động ẩn đảo gốc khi bung Face ID để không bị 2 đảo đè nhau
-    [[NSNotificationCenter defaultCenter] addObserverForName:@"VI_HideNativeIslandForPearl" object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        self.alpha = 0.0;
-    }];
-    [[NSNotificationCenter defaultCenter] addObserverForName:@"VI_RestoreNativeIsland" object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        [UIView animateWithDuration:0.25 animations:^{
-            self.alpha = 1.0;
-        }];
-    }];
-}
 
 - (void)layoutSubviews {
     %orig;
@@ -693,7 +734,7 @@ static BOOL isHandlingBioEvent = NO;
         frame.origin.y = yPos;
         frame.origin.x = xPos;
         self.frame = frame;
-    } else if (scaleEnabled && !posEnabled | scaleEnabled && !fixEnabled) {
+        } else if ((scaleEnabled && !posEnabled) || (scaleEnabled && !fixEnabled)) {
         self.transform = CGAffineTransformMakeScale(scale, scale);
     }
 }
@@ -1007,10 +1048,18 @@ void preferencesChanged(){
 
 static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        SBSystemApertureController *saController = [%c(SBSystemApertureController) sharedInstance];
+
         if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.scanning"))) {
+            isBioActive = YES;
             [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-            if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                [activeLockElementProvider handleBiometricEvent:1];
+            if (activeLockElementProvider) {
+                if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                    [activeLockElementProvider handleBiometricEvent:1];
+                }
+                if (saController && [saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
+                    [saController elementRequestsUpdateToPreferredLayoutMode:activeLockElementProvider];
+                }
             }
         } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.success"))) {
             AudioServicesPlaySystemSound(1394);
@@ -1022,6 +1071,12 @@ static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *ob
                     [activeLockElementProvider handleBiometricEvent:4];
                 }
             }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                isBioActive = NO;
+                if (saController && activeLockElementProvider && [saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
+                    [saController elementRequestsUpdateToPreferredLayoutMode:activeLockElementProvider];
+                }
+            });
         } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.failure"))) {
             AudioServicesPlaySystemSound(1395);
             if (activeLockElementProvider) {
@@ -1032,6 +1087,12 @@ static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *ob
                     [activeLockElementProvider handleBiometricEvent:9];
                 }
             }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                isBioActive = NO;
+                if (saController && activeLockElementProvider && [saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
+                    [saController elementRequestsUpdateToPreferredLayoutMode:activeLockElementProvider];
+                }
+            });
         }
     });
 }
