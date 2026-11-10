@@ -66,7 +66,11 @@ static BOOL lineDisabled;
 - (NSString *)elementIdentifier;
 @end
 
-// Provider điều phối hiệu ứng mở rộng khóa/Face ID trên Dynamic Island iOS 16
+// Authority điều phối layout và kích hoạt trạng thái mở rộng Alerting/Expanded của đảo
+@interface SBSystemApertureElementAuthority : NSObject
+@end
+
+// Provider điều phối hiệu ứng khóa/Face ID trên Dynamic Island iOS 16
 @interface SBLockElementViewProvider : NSObject
 @property (assign, nonatomic) BOOL allowsBioUnlock;
 @property (assign, nonatomic) BOOL isAuthenticated;
@@ -133,8 +137,8 @@ static BOOL lineDisabled;
 
 @interface SBBiometricMonitorPearlDataSource : NSObject
 - (BOOL)isPosePresenceDetected;
-- (void)_setMatching:(BOOL)arg1;
-- (void)device:(id)arg1 pearlEventOccurred:(long long)arg2;
+- (void)_setMatching:(BOOL)matching;
+- (void)device:(id)device pearlEventOccurred:(long long)event;
 @end
 
 @interface SBUIPasscodeBiometricAuthenticationView : UIView
@@ -218,7 +222,32 @@ static BOOL lineDisabled;
 static SBLockElementViewProvider *activeLockElementProvider = nil;
 static BOOL isHandlingBioEvent = NO;
 
-// 1. Ép định tuyến SpringBoard & nắm giữ instance Provider của Dynamic Island
+// 1. Ép SystemAperture cấp quyền cho Element mở rộng (Mode 3 = Alerting / Expanded)
+%hook SBSystemApertureElementAuthority
+
+- (BOOL)systemApertureApertureElementAuthority:(id)authority isActivityElementAlerting:(id)element {
+    return YES;
+}
+
+- (BOOL)systemApertureApertureElementAuthority:(id)authority isElementExpandedDueToUserInteraction:(id)element {
+    return YES;
+}
+
+- (BOOL)systemApertureApertureElementAuthority:(id)authority isElementRequiredToRemainVisible:(id)element {
+    return YES;
+}
+
+- (long long)systemApertureApertureElementAuthority:(id)authority preferredLayoutModeForElement:(id)element {
+    return 3; // Ép bung to tối đa chuẩn giao diện Face ID gốc
+}
+
+- (unsigned long long)systemApertureApertureElementAuthorityMaximumNumberOfSimultaneouslyVisibleElements:(id)authority {
+    return 2;
+}
+
+%end
+
+// 2. Chặn lỗi ổ khóa mở ảo và giữ instance Provider
 %hook SBLockElementViewProvider
 
 - (id)init {
@@ -233,6 +262,16 @@ static BOOL isHandlingBioEvent = NO;
 
 - (BOOL)allowsBioUnlock {
     return YES;
+}
+
+// Chặn không cho tự ý báo đã mở khóa khi máy vẫn đang ở màn hình khóa
+- (void)setAuthenticated:(BOOL)authenticated {
+    SBLockScreenManager *lsm = [%c(SBLockScreenManager) sharedInstance];
+    if (lsm && [lsm isUILocked] && authenticated) {
+        %orig(NO);
+    } else {
+        %orig(authenticated);
+    }
 }
 
 %end
@@ -251,7 +290,7 @@ static BOOL isHandlingBioEvent = NO;
 }
 %end
 
-// 2. Ép phần cứng và xử lý mọi sự kiện Vân tay (Touch ID) lẫn Face ID
+// 3. Ép phần cứng và xử lý mọi sự kiện Vân tay (Touch ID) lẫn Face ID
 %hook SBFMobileKeyBag
 - (BOOL)hasPearl {
     return YES;
@@ -318,7 +357,7 @@ static BOOL isHandlingBioEvent = NO;
 }
 %end
 
-// 3. LỖI 1: Bật nút nguồn / Mở sáng màn hình -> Bung quét ngay trên đảo
+// 4. LỖI 1: Bật nút nguồn / Mở sáng màn hình -> Bung quét ngay trên đảo
 %hook CSCoverSheetViewController
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -359,7 +398,7 @@ static BOOL isHandlingBioEvent = NO;
 
 %end
 
-// 4. LỖI 2: Vuốt lên gõ Passcode -> Kích hoạt quét lần 2
+// 5. LỖI 2: Vuốt lên gõ Passcode -> Kích hoạt quét lần 2
 %hook SBUIPasscodeBiometricAuthenticationView
 
 - (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
@@ -378,7 +417,7 @@ static BOOL isHandlingBioEvent = NO;
 
 %end
 
-// 5. LỖI 3: Điều hướng xác thực trong App (Ảnh ẩn/xoá, Keychain, App Store, Apple Pay)
+// 6. LỖI 3: Điều hướng xác thực trong App (Ảnh ẩn/xoá, Keychain, App Store, Apple Pay)
 %hook SBBiometricMonitorPearlDataSource
 
 - (BOOL)isPosePresenceDetected {
@@ -939,7 +978,7 @@ static BOOL isHandlingBioEvent = NO;
 %end
 
 static void respring(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-  [[%c(FBSystemService) sharedInstance] exitAndRelaunch:YES];
+    [[%c(FBSystemService) sharedInstance] exitAndRelaunch:YES];
 }
 
 void preferencesChanged(){
@@ -967,28 +1006,34 @@ void preferencesChanged(){
 }
 
 static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.scanning"))) {
-        [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-            [activeLockElementProvider handleBiometricEvent:1];
-        }
-    } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.success"))) {
-        AudioServicesPlaySystemSound(1394);
-        if (activeLockElementProvider) {
-            [activeLockElementProvider setAuthenticated:YES];
-            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                [activeLockElementProvider handleBiometricEvent:4];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.scanning"))) {
+            [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+            if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                [activeLockElementProvider handleBiometricEvent:1];
+            }
+        } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.success"))) {
+            AudioServicesPlaySystemSound(1394);
+            if (activeLockElementProvider) {
+                if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+                    [activeLockElementProvider setAuthenticated:YES];
+                }
+                if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                    [activeLockElementProvider handleBiometricEvent:4];
+                }
+            }
+        } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.failure"))) {
+            AudioServicesPlaySystemSound(1395);
+            if (activeLockElementProvider) {
+                if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+                    [activeLockElementProvider setAuthenticated:NO];
+                }
+                if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                    [activeLockElementProvider handleBiometricEvent:9];
+                }
             }
         }
-    } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.failure"))) {
-        AudioServicesPlaySystemSound(1395);
-        if (activeLockElementProvider) {
-            [activeLockElementProvider setAuthenticated:NO];
-            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                [activeLockElementProvider handleBiometricEvent:9];
-            }
-        }
-    }
+    });
 }
 
 %ctor {
