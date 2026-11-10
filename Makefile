@@ -11,7 +11,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = VisibleIsland
 
 VisibleIsland_FILES = Tweak.xm
-VisibleIsland_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore LocalAuthentication
+VisibleIsland_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore LocalAuthentication AudioToolbox
 VisibleIsland_PRIVATE_FRAMEWORKS = BiometricKitUI
 
 # Cờ biên dịch an toàn cho cả Objective-C ARC và không bị dừng vì warning
