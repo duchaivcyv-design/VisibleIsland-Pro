@@ -420,29 +420,30 @@ static BOOL isHandlingBioEvent = NO;
 - (void)_notifyObserversOfEvent:(unsigned long long)event {
     %orig;
 
-    // CHỐNG ĐỆ QUY VÔ TẬN: Ngăn xung đột với tweak Face ID gây crash lặp (Safe Mode)
+    // Chặn đệ quy vô tận với tweak Face ID khác
     if (isHandlingBioEvent) return;
     isHandlingBioEvent = YES;
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        // Chạm cảm biến / quét sinh trắc học
-        if (event == 1 || event == 2 || event == 12 || event == 13) {
-            [[NativeIslandGlyphController sharedInstance] showScanning];
-        } 
-        // Khớp khuôn mặt / Vân tay / Thanh toán in-app thành công -> Nổ dấu tích V
-        else if (event == 3 || event == 4 || event == 14 || event == 15) {
-            [[NativeIslandGlyphController sharedInstance] showSuccess];
-        } 
-        // Quét thất bại -> Rung lắc đảo
-        else if (event == 9 || event == 10 || event == 11) {
-            [[NativeIslandGlyphController sharedInstance] showFailure];
-        }
+    // Chạm cảm biến / bắt đầu nhận diện sinh trắc học
+    if (event == 1 || event == 2 || event == 12 || event == 13) {
+        [[NativeIslandGlyphController sharedInstance] showScanning];
+    } 
+    // Khớp khuôn mặt / Vân tay / Mua hàng thành công -> Hiện dấu tích V
+    else if (event == 3 || event == 4 || event == 14 || event == 15) {
+        [[NativeIslandGlyphController sharedInstance] showSuccess];
+    } 
+    // Quét thất bại -> Rung lắc đảo
+    else if (event == 9 || event == 10 || event == 11) {
+        [[NativeIslandGlyphController sharedInstance] showFailure];
+    }
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         isHandlingBioEvent = NO;
     });
 }
 %end
 
-// LỖI 1: Mở khóa màn hình khóa & Sáng màn hình từ nút nguồn
+// LỖI 1: Mở khóa màn hình khóa & Sáng màn hình
 %hook SBLockScreenManager
 
 - (void)_finishUIUnlockFromSource:(int)source withOptions:(id)options {
@@ -459,16 +460,6 @@ static BOOL isHandlingBioEvent = NO;
 }
 
 - (void)lockUIFromSource:(int)source withOptions:(id)options {
-    %orig;
-    [[NativeIslandGlyphController sharedInstance] showScanning];
-}
-
-%end
-
-// Bắt sự kiện sáng màn hình (Bấm nút nguồn / Gõ sáng màn hình)
-%hook SBBacklightController
-
-- (void)turnOnScreenFullyWithReason:(id)arg1 {
     %orig;
     [[NativeIslandGlyphController sharedInstance] showScanning];
 }
@@ -503,7 +494,7 @@ static BOOL isHandlingBioEvent = NO;
 
 %end
 
-// Bắt sự kiện vuốt thanh Home Bar trên màn hình khóa lên
+// Bắt sự kiện sáng màn hình và vuốt CoverSheet lên an toàn (Thay thế SBBacklightController)
 %hook CSCoverSheetViewController
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -546,6 +537,7 @@ static BOOL isHandlingBioEvent = NO;
 }
 
 %end
+
 
 // ============================================================================
 // GIỮ NGUYÊN HOÀN TOÀN TẤT CẢ CÁC HOOK CỦA VISIBLEISLAND (BỔ SUNG CHỐNG ĐÈ LỖI 5)
