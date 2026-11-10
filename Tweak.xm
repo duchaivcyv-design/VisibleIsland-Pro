@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
+#import <AudioToolbox/AudioServices.h>
 #import <sys/sysctl.h>
 #import <notify.h>
 
@@ -63,6 +64,21 @@ static BOOL lineDisabled;
 @interface SAElement : NSObject
 - (NSString *)clientIdentifier;
 - (NSString *)elementIdentifier;
+@end
+
+// Provider điều phối hiệu ứng mở rộng khóa/Face ID trên Dynamic Island iOS 16
+@interface SBLockElementViewProvider : NSObject
+@property (assign, nonatomic) BOOL allowsBioUnlock;
+@property (assign, nonatomic) BOOL isAuthenticated;
+- (BOOL)_allowsBiometricUnlock;
+- (void)_updateAllowsBioUnlock;
+- (void)handleBiometricEvent:(unsigned long long)event;
+- (void)biometricResource:(id)resource observeEvent:(unsigned long long)event;
+- (void)setAuthenticated:(BOOL)authenticated;
+@end
+
+@interface SBSystemApertureSceneElement : NSObject
+- (BOOL)isBiometricKit;
 @end
 
 @interface SBPearlInterstitialsElement : NSObject
@@ -196,23 +212,49 @@ static BOOL lineDisabled;
 
 // ============================================================================
 // HOOK HỆ THỐNG GỐC: ÉP BẬT GIAO DIỆN DYNAMIC ISLAND PEARL GỐC CỦA IOS 16
+// (NHẬN DIỆN TOUCH ID VÂN TAY + FACE ID TWEAK + IN-APP)
 // ============================================================================
 
-#import <AudioToolbox/AudioServices.h>
-
+static SBLockElementViewProvider *activeLockElementProvider = nil;
 static BOOL isHandlingBioEvent = NO;
 
-// 1. Ép hệ thống chuyển định tuyến Touch ID -> Pearl (Face ID) cho Dynamic Island
-%hook SBFMobileKeyBag
-- (BOOL)hasPearl {
+// 1. Ép định tuyến SpringBoard & nắm giữ instance Provider của Dynamic Island
+%hook SBLockElementViewProvider
+
+- (id)init {
+    id orig = %orig;
+    activeLockElementProvider = orig;
+    return orig;
+}
+
+- (BOOL)_allowsBiometricUnlock {
+    return YES;
+}
+
+- (BOOL)allowsBioUnlock {
+    return YES;
+}
+
+%end
+
+// Ép nhận diện Element sinh trắc học của Dynamic Island
+%hook SBSystemApertureSceneElement
+- (BOOL)isBiometricKit {
     return YES;
 }
 %end
 
+// Ép hệ thống nhận diện cờ điều hướng tràn viền (Gesture), bỏ khóa cứng Home Button
 %hook BSPlatform
-// Ép SpringBoard nhận diện kiểu điều hướng tràn viền (Gesture), bỏ khóa cứng Home Button
 - (NSInteger)homeButtonType {
     return 2; // HomeButtonTypeNone (iPhone X / 14 Pro style)
+}
+%end
+
+// 2. Ép phần cứng và xử lý mọi sự kiện Vân tay (Touch ID) lẫn Face ID
+%hook SBFMobileKeyBag
+- (BOOL)hasPearl {
+    return YES;
 }
 %end
 
@@ -239,32 +281,34 @@ static BOOL isHandlingBioEvent = NO;
     if (isHandlingBioEvent) return;
     isHandlingBioEvent = YES;
 
-    // Chạm cảm biến / Face ID tweak quét mặt / Nhận diện vân tay
-    if (event == 1 || event == 2 || event == 12 || event == 13) {
-        // Đánh thức Dynamic Island mở rộng và xoay khuôn mặt xanh gốc
-        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
-            [elem activate];
-            [elem setBiometricEvent:1];
+    // Đẩy sự kiện trực tiếp vào Provider quản lý đảo
+    if (activeLockElementProvider) {
+        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+            [activeLockElementProvider handleBiometricEvent:event];
         }
-    } 
-    // Xác thực thành công (Khớp mặt/vân tay) -> Tích V + Tiếng Face ID
+        if ([activeLockElementProvider respondsToSelector:@selector(biometricResource:observeEvent:)]) {
+            [activeLockElementProvider biometricResource:self observeEvent:event];
+        }
+    }
+
+    // Chạm cảm biến vân tay (Touch ID) / Tweak Face ID quét khuôn mặt
+    if (event == 1 || event == 2 || event == 12 || event == 13) {
+        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+            [activeLockElementProvider setAuthenticated:NO];
+        }
+    }
+    // Xác thực thành công (Khớp vân tay/khuôn mặt/in-app) -> Tích V + Chuông Face ID gốc
     else if (event == 3 || event == 4 || event == 14 || event == 15) {
         AudioServicesPlaySystemSound(1394);
-        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
-            [elem setBiometricEvent:4];
+        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+            [activeLockElementProvider setAuthenticated:YES];
         }
     } 
-    // Quét thất bại -> Lắc đảo + Âm thanh lỗi
+    // Quét thất bại / Sai vân tay / Sai mặt -> Rung lắc đảo + Chuông lỗi gốc
     else if (event == 9 || event == 10 || event == 11) {
         AudioServicesPlaySystemSound(1395);
-        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
-            [elem setBiometricEvent:9];
+        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+            [activeLockElementProvider setAuthenticated:NO];
         }
     }
 
@@ -274,35 +318,14 @@ static BOOL isHandlingBioEvent = NO;
 }
 %end
 
-// 2. Ép SystemAperture nhận Pearl Element là Element cấp cao nhất (Primary UI)
-%hook SBSystemApertureController
-
-- (BOOL)isPearlAvailable {
-    return YES;
-}
-
-- (BOOL)isElementReady:(id)arg1 {
-    return YES;
-}
-
-- (BOOL)isPearlActive {
-    return YES;
-}
-
-%end
-
-// 3. LỖI 1: Bấm nút nguồn / Bật sáng màn hình -> Kích hoạt ngay lập tức
+// 3. LỖI 1: Bật nút nguồn / Mở sáng màn hình -> Bung quét ngay trên đảo
 %hook CSCoverSheetViewController
 
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
     [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-    
-    Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-    if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-        SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
-        [elem activate];
-        [elem setBiometricEvent:1];
+    if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+        [activeLockElementProvider handleBiometricEvent:1];
     }
 }
 
@@ -313,16 +336,22 @@ static BOOL isHandlingBioEvent = NO;
 - (void)lockUIFromSource:(int)source withOptions:(id)options {
     %orig;
     [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+    if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+        [activeLockElementProvider handleBiometricEvent:1];
+    }
 }
 
 - (BOOL)unlockUIFromSource:(int)source withOptions:(id)options {
     BOOL res = %orig;
     if (res) {
         AudioServicesPlaySystemSound(1394);
-        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
-            [elem setBiometricEvent:4];
+        if (activeLockElementProvider) {
+            if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+                [activeLockElementProvider setAuthenticated:YES];
+            }
+            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                [activeLockElementProvider handleBiometricEvent:4];
+            }
         }
     }
     return res;
@@ -337,17 +366,12 @@ static BOOL isHandlingBioEvent = NO;
     %orig;
     if (state == 1 || state == 2) {
         [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
-            [elem activate];
-            [elem setBiometricEvent:1];
+        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+            [activeLockElementProvider handleBiometricEvent:1];
         }
     } else if (state == 3 || state == 0) {
-        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
-            [elem setBiometricEvent:9];
+        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+            [activeLockElementProvider handleBiometricEvent:9];
         }
     }
 }
@@ -363,31 +387,37 @@ static BOOL isHandlingBioEvent = NO;
 
 - (void)_setMatching:(BOOL)matching {
     %orig;
-    if (matching) {
-        Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-        if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-            SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
-            [elem activate];
-            [elem setBiometricEvent:1];
+    if (matching && activeLockElementProvider) {
+        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+            [activeLockElementProvider handleBiometricEvent:1];
         }
     }
 }
 
 - (void)device:(id)device pearlEventOccurred:(long long)event {
     %orig;
-    Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-    if (![pearlElemClass respondsToSelector:@selector(sharedInstance)]) return;
-    SBSystemAperturePearlAuthenticatingElement *elem = [pearlElemClass sharedInstance];
+    if (!activeLockElementProvider) return;
 
     if (event == 1 || event == 2) {
-        [elem activate];
-        [elem setBiometricEvent:1];
+        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+            [activeLockElementProvider handleBiometricEvent:1];
+        }
     } else if (event == 4) {
         AudioServicesPlaySystemSound(1394);
-        [elem setBiometricEvent:4];
+        if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+            [activeLockElementProvider setAuthenticated:YES];
+        }
+        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+            [activeLockElementProvider handleBiometricEvent:4];
+        }
     } else if (event == 8 || event == 9) {
         AudioServicesPlaySystemSound(1395);
-        [elem setBiometricEvent:9];
+        if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
+            [activeLockElementProvider setAuthenticated:NO];
+        }
+        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+            [activeLockElementProvider handleBiometricEvent:9];
+        }
     }
 }
 
@@ -937,22 +967,27 @@ void preferencesChanged(){
 }
 
 static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    Class pearlElemClass = %c(SBSystemAperturePearlAuthenticatingElement);
-    SBSystemAperturePearlAuthenticatingElement *elem = nil;
-    if ([pearlElemClass respondsToSelector:@selector(sharedInstance)]) {
-        elem = [pearlElemClass sharedInstance];
-    }
-
     if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.scanning"))) {
         [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-        [elem activate];
-        [elem setBiometricEvent:1];
+        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+            [activeLockElementProvider handleBiometricEvent:1];
+        }
     } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.success"))) {
         AudioServicesPlaySystemSound(1394);
-        [elem setBiometricEvent:4];
+        if (activeLockElementProvider) {
+            [activeLockElementProvider setAuthenticated:YES];
+            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                [activeLockElementProvider handleBiometricEvent:4];
+            }
+        }
     } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.failure"))) {
         AudioServicesPlaySystemSound(1395);
-        [elem setBiometricEvent:9];
+        if (activeLockElementProvider) {
+            [activeLockElementProvider setAuthenticated:NO];
+            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
+                [activeLockElementProvider handleBiometricEvent:9];
+            }
+        }
     }
 }
 
