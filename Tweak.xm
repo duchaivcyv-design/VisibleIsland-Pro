@@ -801,14 +801,14 @@ void preferencesChanged(){
     scale = [[prefs objectForKey:@"scale"] floatValue];
 }
 
-// Nhận tín hiệu IPC từ các tiến trình con ngoài SpringBoard (coreauthd / App Store / Safari)
+// Điều hướng Face ID từ App bên ngoài về thẳng BiometricResource gốc của iOS 16
 static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.scanning"))) {
-        [[NativeIslandGlyphController sharedInstance] showScanning];
+        [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
     } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.success"))) {
-        [[NativeIslandGlyphController sharedInstance] showSuccess];
+        AudioServicesPlaySystemSound(1394);
     } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.failure"))) {
-        [[NativeIslandGlyphController sharedInstance] showFailure];
+        AudioServicesPlaySystemSound(1395);
     }
 }
 
