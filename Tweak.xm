@@ -267,7 +267,8 @@ static BOOL lineDisabled;
 
     self.glyphView.frame = CGRectMake(0, 0, 76, 76);
     self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
-    self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
+    // Thu nhỏ glyph ban đầu nằm ẩn trong viên thuốc
+    self.glyphView.transform = CGAffineTransformMakeScale(0.2, 0.2);
     [self.glyphView setFeedbackEnabled:YES];
     [self.pillContainer addSubview:self.glyphView];
 }
@@ -298,7 +299,9 @@ static BOOL lineDisabled;
             self.pillContainer.frame = CGRectMake((screenBounds.size.width - expandedW) / 2.0, topY, expandedW, expandedH);
             self.pillContainer.layer.cornerRadius = 38.0;
             self.glyphView.center = CGPointMake(expandedW / 2.0, expandedH / 2.0);
-            self.glyphView.transform = CGAffineTransformMakeScale(0.95, 0.95);
+            
+            // SỬA CHUẨN: THU NHỎ PHẦN XOAY XOAY (Scale 0.54 vừa vặn tâm đảo y hệt gốc)
+            self.glyphView.transform = CGAffineTransformMakeScale(0.54, 0.54);
         } completion:nil];
 
         self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:3.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
@@ -318,7 +321,8 @@ static BOOL lineDisabled;
         [self.glyphView setState:2 animated:YES withCompletion:nil];
 
         [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:1.0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.glyphView.transform = CGAffineTransformMakeScale(1.2, 1.2);
+            // Dấu tích V nảy nhẹ lên mức 0.62 (vẫn gọn gàng trong lòng đảo, không bị to bè)
+            self.glyphView.transform = CGAffineTransformMakeScale(0.62, 0.62);
         } completion:nil];
 
         // Chờ hiện trọn vẹn dấu tick V (1.4 giây) rồi mới nhẹ nhàng thu về đảo
@@ -338,7 +342,7 @@ static BOOL lineDisabled;
         CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
         shake.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
         shake.duration = 0.45;
-        shake.values = @[@(-12), @(12), @(-9), @(9), @(-5), @(5), @(0)];
+        shake.values = @[@(-10), @(10), @(-8), @(8), @(-4), @(4), @(0)];
         [self.pillContainer.layer addAnimation:shake forKey:@"shake"];
 
         self.dismissTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(collapse) userInfo:nil repeats:NO];
@@ -376,7 +380,8 @@ static BOOL lineDisabled;
         CGFloat baseH = 37.0;
 
         [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.85 initialSpringVelocity:0.5 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.glyphView.transform = CGAffineTransformMakeScale(0.3, 0.3);
+            // Thu nhỏ glyph dần về 0.2 khi đóng
+            self.glyphView.transform = CGAffineTransformMakeScale(0.2, 0.2);
             self.pillContainer.frame = CGRectMake((screenBounds.size.width - baseW) / 2.0, topY, baseW, baseH);
             self.pillContainer.layer.cornerRadius = baseH / 2.0;
             self.glyphView.center = CGPointMake(baseW / 2.0, baseH / 2.0);
@@ -397,6 +402,8 @@ static BOOL lineDisabled;
 // HOOK HỆ THỐNG GỐC KÍCH HOẠT HIỆU ỨNG (MÀN HÌNH KHÓA + IN-APP + PASSCODE)
 // ============================================================================
 
+static BOOL isHandlingBioEvent = NO;
+
 %hook SBFMobileKeyBag
 - (BOOL)hasPearl {
     return YES;
@@ -412,18 +419,26 @@ static BOOL lineDisabled;
 }
 - (void)_notifyObserversOfEvent:(unsigned long long)event {
     %orig;
-    // Chạm cảm biến / quét sinh trắc học
-    if (event == 1 || event == 2 || event == 12 || event == 13) {
-        [[NativeIslandGlyphController sharedInstance] showScanning];
-    } 
-    // Khớp khuôn mặt / Vân tay / Thanh toán in-app thành công -> Nổ dấu tích V
-    else if (event == 3 || event == 4 || event == 14 || event == 15) {
-        [[NativeIslandGlyphController sharedInstance] showSuccess];
-    } 
-    // Quét thất bại -> Rung lắc đảo
-    else if (event == 9 || event == 10 || event == 11) {
-        [[NativeIslandGlyphController sharedInstance] showFailure];
-    }
+
+    // CHỐNG ĐỆ QUY VÔ TẬN: Ngăn xung đột với tweak Face ID gây crash lặp (Safe Mode)
+    if (isHandlingBioEvent) return;
+    isHandlingBioEvent = YES;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Chạm cảm biến / quét sinh trắc học
+        if (event == 1 || event == 2 || event == 12 || event == 13) {
+            [[NativeIslandGlyphController sharedInstance] showScanning];
+        } 
+        // Khớp khuôn mặt / Vân tay / Thanh toán in-app thành công -> Nổ dấu tích V
+        else if (event == 3 || event == 4 || event == 14 || event == 15) {
+            [[NativeIslandGlyphController sharedInstance] showSuccess];
+        } 
+        // Quét thất bại -> Rung lắc đảo
+        else if (event == 9 || event == 10 || event == 11) {
+            [[NativeIslandGlyphController sharedInstance] showFailure];
+        }
+        isHandlingBioEvent = NO;
+    });
 }
 %end
 
@@ -509,7 +524,7 @@ static BOOL lineDisabled;
 }
 %end
 
-// LỖI 3: Bắt sự kiện xác thực từ APP trong SpringBoard (Ảnh ẩn, xoá, Apple Pay)
+// LỖI 3: Bắt sự kiện xác thực từ APP trong SpringBoard an toàn (Ảnh ẩn, xoá, Apple Pay, App Store)
 %hook SBBiometricMonitorPearlDataSource
 
 - (void)_setMatching:(BOOL)matching {
@@ -528,43 +543,6 @@ static BOOL lineDisabled;
     } else if (event == 8 || event == 9) {
         [[NativeIslandGlyphController sharedInstance] showFailure];
     }
-}
-
-%end
-
-// LỖI 3: Bắt xác thực bảo mật trực tiếp từ tiến trình ngoài (coreauthd / App Store / Safari)
-%hook LAContext
-
-- (void)evaluatePolicy:(long long)policy localizedReason:(id)reason reply:(id)reply {
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.ethxnn88.visibleisland.scanning"), NULL, NULL, YES);
-    
-    id wrappedReply = ^(BOOL success, NSError *error) {
-        if (success) {
-            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.ethxnn88.visibleisland.success"), NULL, NULL, YES);
-        } else {
-            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.ethxnn88.visibleisland.failure"), NULL, NULL, YES);
-        }
-        if (reply) {
-            ((void (^)(BOOL, NSError *))reply)(success, error);
-        }
-    };
-    %orig(policy, reason, wrappedReply);
-}
-
-- (void)evaluateAccessControl:(id)accessControl operation:(long long)operation options:(id)options reply:(id)reply {
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.ethxnn88.visibleisland.scanning"), NULL, NULL, YES);
-    
-    id wrappedReply = ^(BOOL success, NSError *error) {
-        if (success) {
-            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.ethxnn88.visibleisland.success"), NULL, NULL, YES);
-        } else {
-            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.ethxnn88.visibleisland.failure"), NULL, NULL, YES);
-        }
-        if (reply) {
-            ((void (^)(BOOL, NSError *))reply)(success, error);
-        }
-    };
-    %orig(accessControl, operation, options, wrappedReply);
 }
 
 %end
