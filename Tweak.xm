@@ -217,41 +217,50 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================================
-// HOOK HỆ THỐNG GỐC: ÉP HIỂN THỊ VÀ RENDER VIEW FACE ID THẬT TRÊN DYNAMIC ISLAND
+// HOOK HỆ THỐNG GỐC: AN TOÀN CHO THIẾT BỊ KHÔNG CÓ PEARL (IPHONE 8 PLUS / TOUCH ID)
 // ============================================================================
 
-static SBSystemAperturePearlAuthenticatingElement *activePearlElement = nil;
+static id activePearlElement = nil;
 static BOOL isBioActive = NO;
 static BOOL isHandlingBioEvent = NO;
 
-// Lấy hoặc khởi tạo và đăng ký Pearl Element với SpringBoard Controller
-static SBSystemAperturePearlAuthenticatingElement *getPearlElement() {
-    if (activePearlElement) return activePearlElement;
-    Class pearlClass = %c(SBSystemAperturePearlAuthenticatingElement);
-    if (!pearlClass) return nil;
-    
-    if ([pearlClass respondsToSelector:@selector(sharedInstance)]) {
-        activePearlElement = [pearlClass sharedInstance];
-    }
-    if (!activePearlElement) {
-        activePearlElement = [[pearlClass alloc] init];
-    }
-    
-    SBSystemApertureController *saController = [%c(SBSystemApertureController) sharedInstance];
-    if (saController && activePearlElement) {
-        if ([saController respondsToSelector:@selector(registerElement:)]) {
-            [saController registerElement:activePearlElement];
+// Lấy Pearl Element an toàn (tránh crash nếu class không tồn tại)
+static id getPearlElement() {
+    @try {
+        if (activePearlElement) return activePearlElement;
+        Class pearlClass = %c(SBSystemAperturePearlAuthenticatingElement);
+        if (!pearlClass) return nil;
+        
+        if ([pearlClass respondsToSelector:@selector(sharedInstance)]) {
+            activePearlElement = [pearlClass sharedInstance];
         }
+        if (!activePearlElement) {
+            activePearlElement = [[pearlClass alloc] init];
+        }
+        
+        Class saControllerClass = %c(SBSystemApertureController);
+        if (saControllerClass && [saControllerClass respondsToSelector:@selector(sharedInstance)]) {
+            id saController = [saControllerClass sharedInstance];
+            if (saController && activePearlElement) {
+                if ([saController respondsToSelector:@selector(registerElement:)]) {
+                    [saController registerElement:activePearlElement];
+                }
+            }
+        }
+        return activePearlElement;
+    } @catch (NSException *e) {
+        return nil;
     }
-    return activePearlElement;
 }
 
-// Hàm kích hoạt chi tiết: Ép view hiển thị, không bị ẩn, và ra lệnh cập nhật layout mode 3
+// Hàm kích hoạt an toàn với try-catch chặn đứng SIGABRT
 static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        isBioActive = expanding;
-        SBSystemAperturePearlAuthenticatingElement *pearl = getPearlElement();
-        if (pearl) {
+        @try {
+            isBioActive = expanding;
+            id pearl = getPearlElement();
+            if (!pearl) return;
+            
             if ([pearl respondsToSelector:@selector(activate)]) {
                 [pearl activate];
             }
@@ -264,61 +273,74 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
                 [pearl setBioEvent:bioEvent];
             }
             
-            // Ép view của element hiện hình trực tiếp nếu đang bị ẩn
             UIView *eView = nil;
             if ([pearl respondsToSelector:@selector(elementView)]) {
                 eView = [pearl elementView];
             }
-            if (eView) {
+            if ([eView isKindOfClass:[UIView class]]) {
                 eView.hidden = NO;
                 eView.alpha = 1.0;
                 [eView setNeedsLayout];
                 [eView layoutIfNeeded];
             }
-        }
-        
-        SBSystemApertureController *saController = [%c(SBSystemApertureController) sharedInstance];
-        if (saController && pearl) {
-            if ([saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
-                [saController elementRequestsUpdateToPreferredLayoutMode:pearl];
-            } else if ([saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:forReason:)]) {
-                [saController elementRequestsUpdateToPreferredLayoutMode:pearl forReason:@"ForceBioDisplay"];
+            
+            Class saControllerClass = %c(SBSystemApertureController);
+            if (saControllerClass && [saControllerClass respondsToSelector:@selector(sharedInstance)]) {
+                id saController = [saControllerClass sharedInstance];
+                if (saController && [saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
+                    [saController elementRequestsUpdateToPreferredLayoutMode:pearl];
+                }
             }
+        } @catch (NSException *exception) {
+            // Bắt ngoại lệ để iPhone 8 Plus không bị văng Safe Mode / Crash SpringBoard
         }
     });
 }
 
-// 1. Hook trực tiếp SBSystemAperturePearlAuthenticatingElement để ép Render View thật
+// 1. Hook an toàn cho SBSystemAperturePearlAuthenticatingElement
 %hook SBSystemAperturePearlAuthenticatingElement
 
 - (id)init {
-    id orig = %orig;
-    activePearlElement = orig;
-    return orig;
+    @try {
+        id orig = %orig;
+        activePearlElement = orig;
+        return orig;
+    } @catch (NSException *e) {
+        return %orig;
+    }
 }
 
 - (BOOL)isAuthenticating {
-    return isBioActive ? YES : %orig;
+    @try {
+        return isBioActive ? YES : %orig;
+    } @catch (NSException *e) {
+        return NO;
+    }
 }
 
-// Ép trả về view thật, không được phép nil hoặc ẩn
 - (UIView *)elementView {
-    UIView *v = %orig;
-    if (v) {
-        v.hidden = NO;
-        v.alpha = 1.0;
-        v.userInteractionEnabled = YES;
+    @try {
+        UIView *v = %orig;
+        if ([v isKindOfClass:[UIView class]]) {
+            v.hidden = NO;
+            v.alpha = 1.0;
+            v.userInteractionEnabled = YES;
+        }
+        return v;
+    } @catch (NSException *e) {
+        return nil;
     }
-    return v;
 }
 
 - (void)setAuthenticating:(BOOL)authenticating {
-    %orig(isBioActive ? YES : authenticating);
+    @try {
+        %orig(isBioActive ? YES : authenticating);
+    } @catch (NSException *e) {}
 }
 
 %end
 
-// 2. Ép SystemAperture cấp quyền hiển thị và mở rộng tối đa (Mode 3)
+// 2. Hook ủy quyền System Aperture
 %hook SBSystemApertureElementAuthority
 
 - (BOOL)systemApertureApertureElementAuthority:(id)authority isActivityElementAlerting:(id)element {
@@ -338,7 +360,7 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 
 - (long long)systemApertureApertureElementAuthority:(id)authority preferredLayoutModeForElement:(id)element {
     if (isBioActive) {
-        return 3; // Mode 3: Expanded / Alerting (Bung to hình vuông hiển thị vòng tròn quét mặt/vân tay)
+        return 3; // Mode 3: Expanded / Alerting
     }
     return %orig;
 }
@@ -349,7 +371,7 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 
 %end
 
-// 3. Ép SBSystemApertureController nhận diện phần cứng Pearl luôn sẵn sàng
+// 3. Ép Controller nhận diện phần cứng
 %hook SBSystemApertureController
 
 - (BOOL)isPearlAvailable {
@@ -361,15 +383,19 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 
 - (id)activePearlElement {
-    return getPearlElement() ?: %orig;
+    @try {
+        return getPearlElement() ?: %orig;
+    } @catch (NSException *e) {
+        return %orig;
+    }
 }
 
 %end
 
-// Ép hệ thống nhận diện cờ điều hướng tràn viền (Gesture)
+// Ép hệ thống nhận diện cờ điều hướng tràn viền
 %hook BSPlatform
 - (NSInteger)homeButtonType {
-    return 2; // HomeButtonTypeNone (iPhone X / 14 Pro style)
+    return 2; // HomeButtonTypeNone (Giả lập kiểu dáng tràn viền)
 }
 %end
 
@@ -379,7 +405,7 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 %end
 
-// 4. Xử lý tất cả các sự kiện sinh trắc học phần cứng (Touch ID / Face ID)
+// 4. Xử lý sự kiện sinh trắc học / mở khóa
 %hook SBUIBiometricResource
 - (BOOL)hasPearlSupport {
     return YES;
@@ -403,11 +429,9 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
     if (isHandlingBioEvent) return;
     isHandlingBioEvent = YES;
 
-    // Chạm cảm biến / Quét Face ID / Bắt đầu nhận diện (Event 1, 2, 12, 13)
     if (event == 1 || event == 2 || event == 12 || event == 13) {
         triggerPearlAnimation(1, YES);
     }
-    // Xác thực thành công -> Âm thanh 1394 + Tích V + Thu nhỏ sau 1.2s
     else if (event == 3 || event == 4 || event == 14 || event == 15) {
         AudioServicesPlaySystemSound(1394);
         triggerPearlAnimation(4, YES);
@@ -415,7 +439,6 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
             triggerPearlAnimation(4, NO);
         });
     } 
-    // Xác thực thất bại -> Âm thanh 1395 + Rung lắc lỗi + Thu nhỏ sau 0.8s
     else if (event == 9 || event == 10 || event == 11) {
         AudioServicesPlaySystemSound(1395);
         triggerPearlAnimation(9, YES);
@@ -430,11 +453,12 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 %end
 
-// 5. Các điểm kích hoạt khi bật màn hình / mở khóa
 %hook CSCoverSheetViewController
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
-    [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+    @try {
+        [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+    } @catch (NSException *e) {}
     triggerPearlAnimation(1, YES);
 }
 %end
@@ -442,7 +466,9 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 %hook SBLockScreenManager
 - (void)lockUIFromSource:(int)source withOptions:(id)options {
     %orig;
-    [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+    @try {
+        [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+    } @catch (NSException *e) {}
     triggerPearlAnimation(1, YES);
 }
 
@@ -459,12 +485,13 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 %end
 
-// 6. Vuốt lên gõ Passcode
 %hook SBUIPasscodeBiometricAuthenticationView
 - (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
     %orig;
     if (state == 1 || state == 2) {
-        [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+        @try {
+            [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
+        } @catch (NSException *e) {}
         triggerPearlAnimation(1, YES);
     } else if (state == 3 || state == 0) {
         AudioServicesPlaySystemSound(1395);
@@ -476,7 +503,6 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 %end
 
-// 7. Xác thực In-app (App Store, Ảnh ẩn, Keychain...)
 %hook SBBiometricMonitorPearlDataSource
 - (BOOL)isPosePresenceDetected {
     return YES;
@@ -508,6 +534,7 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
     }
 }
 %end
+
 
 // ============================================================================
 // CẤU HÌNH GIAO DIỆN HỆ THỐNG CỦA VISIBLEISLAND
