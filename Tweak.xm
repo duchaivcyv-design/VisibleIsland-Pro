@@ -66,18 +66,15 @@ static BOOL lineDisabled;
 - (NSString *)elementIdentifier;
 @end
 
-// Authority điều phối layout và kích hoạt trạng thái mở rộng Alerting/Expanded của đảo
 @interface SBSystemApertureElementAuthority : NSObject
 @end
 
-// Provider điều phối hiệu ứng khóa/Face ID trên Dynamic Island iOS 16
 @interface SBLockElementViewProvider : NSObject
 @property (assign, nonatomic) BOOL allowsBioUnlock;
 @property (assign, nonatomic) BOOL isAuthenticated;
 - (BOOL)_allowsBiometricUnlock;
 - (void)_updateAllowsBioUnlock;
 - (void)handleBiometricEvent:(unsigned long long)event;
-- (void)biometricResource:(id)resource observeEvent:(unsigned long long)event;
 - (void)setAuthenticated:(BOOL)authenticated;
 - (BOOL)hasAlertBehavior;
 - (BOOL)isAlerting;
@@ -141,8 +138,8 @@ static BOOL lineDisabled;
 
 @interface SBBiometricMonitorPearlDataSource : NSObject
 - (BOOL)isPosePresenceDetected;
-- (void)_setMatching:(BOOL)matching;
-- (void)device:(id)device pearlEventOccurred:(long long)event;
+- (void)_setMatching:(BOOL)arg1;
+- (void)device:(id)device pearlEventOccurred:(long long)arg2;
 @end
 
 @interface SBUIPasscodeBiometricAuthenticationView : UIView
@@ -190,7 +187,6 @@ static BOOL lineDisabled;
 
 + (CGFloat)defaultIslandYOffset {
     NSString *m = [self deviceModel];
-    // Các dòng Touch ID (iPhone 8, 8 Plus, SE)
     if ([m hasPrefix:@"iPhone10,1"] || [m hasPrefix:@"iPhone10,4"] ||
         [m hasPrefix:@"iPhone10,2"] || [m hasPrefix:@"iPhone10,5"] ||
         [m hasPrefix:@"iPhone12,8"] || [m hasPrefix:@"iPhone14,6"]) {
@@ -219,15 +215,61 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================================
-// HOOK HỆ THỐNG GỐC: ÉP BẬT GIAO DIỆN DYNAMIC ISLAND PEARL GỐC CỦA IOS 16
-// (NHẬN DIỆN TOUCH ID VÂN TAY + FACE ID TWEAK + IN-APP)
+// HOOK HỆ THỐNG GỐC: KÍCH HOẠT PEARL AUTHENTICATING ELEMENT CHO DYNAMIC ISLAND
 // ============================================================================
 
-static SBLockElementViewProvider *activeLockElementProvider = nil;
+static SBSystemAperturePearlAuthenticatingElement *activePearlElement = nil;
 static BOOL isBioActive = NO;
 static BOOL isHandlingBioEvent = NO;
 
-// 1. Ép SystemAperture cấp quyền cho Element mở rộng toàn diện (Alerting & Expanded)
+// Lấy hoặc khởi tạo và đăng ký Pearl Element với SpringBoard Controller
+static SBSystemAperturePearlAuthenticatingElement *getPearlElement() {
+    if (activePearlElement) return activePearlElement;
+    Class pearlClass = %c(SBSystemAperturePearlAuthenticatingElement);
+    if (!pearlClass) return nil;
+    
+    if ([pearlClass respondsToSelector:@selector(sharedInstance)]) {
+        activePearlElement = [pearlClass sharedInstance];
+    }
+    if (!activePearlElement) {
+        activePearlElement = [[pearlClass alloc] init];
+    }
+    
+    SBSystemApertureController *saController = [%c(SBSystemApertureController) sharedInstance];
+    if (saController && activePearlElement) {
+        if ([saController respondsToSelector:@selector(registerElement:)]) {
+            [saController registerElement:activePearlElement];
+        }
+    }
+    return activePearlElement;
+}
+
+// Hàm cốt lõi kích hoạt hoạt ảnh quét Face ID / Vân tay và ép đảo bung mở (Mode 3)
+static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        isBioActive = expanding;
+        SBSystemAperturePearlAuthenticatingElement *pearl = getPearlElement();
+        if (pearl) {
+            if ([pearl respondsToSelector:@selector(activate)]) {
+                [pearl activate];
+            }
+            if ([pearl respondsToSelector:@selector(setBiometricEvent:)]) {
+                [pearl setBiometricEvent:bioEvent];
+            } else if ([pearl respondsToSelector:@selector(setBioEvent:)]) {
+                [pearl setBioEvent:bioEvent];
+            }
+        }
+        
+        SBSystemApertureController *saController = [%c(SBSystemApertureController) sharedInstance];
+        if (saController && pearl) {
+            if ([saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
+                [saController elementRequestsUpdateToPreferredLayoutMode:pearl];
+            }
+        }
+    });
+}
+
+// 1. Ép SystemAperture cấp quyền hiển thị và mở rộng tối đa (Mode 3) cho Pearl Element
 %hook SBSystemApertureElementAuthority
 
 - (BOOL)systemApertureApertureElementAuthority:(id)authority isActivityElementAlerting:(id)element {
@@ -245,10 +287,9 @@ static BOOL isHandlingBioEvent = NO;
     return %orig;
 }
 
-// Khi đang trong tiến trình sinh trắc học -> Ép trả về Mode 3 (Expanded)
 - (long long)systemApertureApertureElementAuthority:(id)authority preferredLayoutModeForElement:(id)element {
     if (isBioActive) {
-        return 3;
+        return 3; // Mode 3: Expanded / Alerting (Bung to hình vuông hiển thị vòng tròn quét mặt/vân tay)
     }
     return %orig;
 }
@@ -259,65 +300,37 @@ static BOOL isHandlingBioEvent = NO;
 
 %end
 
-// 2. Chặn lỗi ổ khóa mở ảo và giữ instance Provider
-%hook SBLockElementViewProvider
+// 2. Ép SBSystemApertureController nhận diện phần cứng Pearl luôn sẵn sàng
+%hook SBSystemApertureController
 
-- (id)init {
-    id orig = %orig;
-    activeLockElementProvider = orig;
-    return orig;
-}
-
-- (BOOL)_allowsBiometricUnlock {
+- (BOOL)isPearlAvailable {
     return YES;
 }
 
-- (BOOL)allowsBioUnlock {
-    return YES;
-}
-
-// Chặn không cho tự ý báo đã mở khóa khi máy vẫn đang ở trạng thái khóa
-- (void)setAuthenticated:(BOOL)authenticated {
-    SBLockScreenManager *lsm = [%c(SBLockScreenManager) sharedInstance];
-    if (lsm && [lsm isUILocked] && authenticated) {
-        %orig(NO);
-    } else {
-        %orig(authenticated);
-    }
-}
-
-// Ép provider luôn hỗ trợ giao diện mở rộng
-- (BOOL)hasAlertBehavior {
-    return YES;
-}
-
-- (BOOL)isAlerting {
+- (BOOL)isPearlActive {
     return isBioActive;
 }
 
-%end
-
-// Ép nhận diện Element sinh trắc học của Dynamic Island
-%hook SBSystemApertureSceneElement
-- (BOOL)isBiometricKit {
-    return YES;
+- (id)activePearlElement {
+    return getPearlElement() ?: %orig;
 }
+
 %end
 
-// Ép hệ thống nhận diện cờ điều hướng tràn viền (Gesture), bỏ khóa cứng Home Button
+// Ép hệ thống nhận diện cờ điều hướng tràn viền (Gesture)
 %hook BSPlatform
 - (NSInteger)homeButtonType {
     return 2; // HomeButtonTypeNone (iPhone X / 14 Pro style)
 }
 %end
 
-// 3. Ép phần cứng và xử lý mọi sự kiện Vân tay (Touch ID) lẫn Face ID
 %hook SBFMobileKeyBag
 - (BOOL)hasPearl {
     return YES;
 }
 %end
 
+// 3. Xử lý tất cả các sự kiện sinh trắc học phần cứng (Touch ID / Face ID)
 %hook SBUIBiometricResource
 - (BOOL)hasPearlSupport {
     return YES;
@@ -341,49 +354,24 @@ static BOOL isHandlingBioEvent = NO;
     if (isHandlingBioEvent) return;
     isHandlingBioEvent = YES;
 
-    // Chạm cảm biến vân tay (Touch ID) / Tweak Face ID quét khuôn mặt
+    // Chạm cảm biến / Quét Face ID / Bắt đầu nhận diện (Event 1, 2, 12, 13)
     if (event == 1 || event == 2 || event == 12 || event == 13) {
-        isBioActive = YES;
-        if (activeLockElementProvider) {
-            if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-                [activeLockElementProvider setAuthenticated:NO];
-            }
-            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                [activeLockElementProvider handleBiometricEvent:event];
-            }
-            if ([activeLockElementProvider respondsToSelector:@selector(biometricResource:observeEvent:)]) {
-                [activeLockElementProvider biometricResource:self observeEvent:event];
-            }
-        }
+        triggerPearlAnimation(1, YES);
     }
-    // Xác thực thành công (Khớp vân tay/khuôn mặt/in-app) -> Tích V + Chuông Face ID gốc
+    // Xác thực thành công -> Âm thanh 1394 + Tích V + Thu nhỏ sau 1.2s
     else if (event == 3 || event == 4 || event == 14 || event == 15) {
         AudioServicesPlaySystemSound(1394);
-        if (activeLockElementProvider) {
-            if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-                [activeLockElementProvider setAuthenticated:YES];
-            }
-            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                [activeLockElementProvider handleBiometricEvent:event];
-            }
-        }
+        triggerPearlAnimation(4, YES);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            isBioActive = NO;
+            triggerPearlAnimation(4, NO);
         });
     } 
-    // Quét thất bại / Sai vân tay / Sai mặt -> Rung lắc đảo + Chuông lỗi gốc
+    // Xác thực thất bại -> Âm thanh 1395 + Rung lắc lỗi + Thu nhỏ sau 0.8s
     else if (event == 9 || event == 10 || event == 11) {
         AudioServicesPlaySystemSound(1395);
-        if (activeLockElementProvider) {
-            if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-                [activeLockElementProvider setAuthenticated:NO];
-            }
-            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                [activeLockElementProvider handleBiometricEvent:event];
-            }
-        }
+        triggerPearlAnimation(9, YES);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            isBioActive = NO;
+            triggerPearlAnimation(9, NO);
         });
     }
 
@@ -393,79 +381,54 @@ static BOOL isHandlingBioEvent = NO;
 }
 %end
 
-// 4. LỖI 1: Bật nút nguồn / Mở sáng màn hình -> Kích hoạt quét trên đảo
+// 4. Các điểm kích hoạt khi bật màn hình / mở khóa
 %hook CSCoverSheetViewController
-
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
-    isBioActive = YES;
     [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-    if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-        [activeLockElementProvider handleBiometricEvent:1];
-    }
+    triggerPearlAnimation(1, YES);
 }
-
 %end
 
 %hook SBLockScreenManager
-
 - (void)lockUIFromSource:(int)source withOptions:(id)options {
     %orig;
-    isBioActive = YES;
     [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-    if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-        [activeLockElementProvider handleBiometricEvent:1];
-    }
+    triggerPearlAnimation(1, YES);
 }
 
 - (BOOL)unlockUIFromSource:(int)source withOptions:(id)options {
     BOOL res = %orig;
     if (res) {
         AudioServicesPlaySystemSound(1394);
-        if (activeLockElementProvider) {
-            if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-                [activeLockElementProvider setAuthenticated:YES];
-            }
-            if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                [activeLockElementProvider handleBiometricEvent:4];
-            }
-        }
+        triggerPearlAnimation(4, YES);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            isBioActive = NO;
+            triggerPearlAnimation(4, NO);
         });
     }
     return res;
 }
-
 %end
 
-// 5. LỖI 2: Vuốt lên gõ Passcode -> Kích hoạt quét lần 2
+// 5. Vuốt lên gõ Passcode
 %hook SBUIPasscodeBiometricAuthenticationView
-
-- (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
+- (setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
     %orig;
     if (state == 1 || state == 2) {
-        isBioActive = YES;
         [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-            [activeLockElementProvider handleBiometricEvent:1];
-        }
+        triggerPearlAnimation(1, YES);
     } else if (state == 3 || state == 0) {
         AudioServicesPlaySystemSound(1395);
-        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-            [activeLockElementProvider handleBiometricEvent:9];
-        }
+        triggerPearlAnimation(9, YES);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            isBioActive = NO;
+            triggerPearlAnimation(9, NO);
         });
     }
 }
-
 %end
 
-// 6. LỖI 3: Điều hướng xác thực trong App (Ảnh ẩn/xoá, Keychain, App Store, Apple Pay)
+// 6. Xác thực In-app (App Store, Ảnh ẩn, Keychain...)
 %hook SBBiometricMonitorPearlDataSource
-
 - (BOOL)isPosePresenceDetected {
     return YES;
 }
@@ -473,51 +436,32 @@ static BOOL isHandlingBioEvent = NO;
 - (void)_setMatching:(BOOL)matching {
     %orig;
     if (matching) {
-        isBioActive = YES;
-        if (activeLockElementProvider && [activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-            [activeLockElementProvider handleBiometricEvent:1];
-        }
+        triggerPearlAnimation(1, YES);
     }
 }
 
 - (void)device:(id)device pearlEventOccurred:(long long)event {
     %orig;
-    if (!activeLockElementProvider) return;
-
     if (event == 1 || event == 2) {
-        isBioActive = YES;
-        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-            [activeLockElementProvider handleBiometricEvent:1];
-        }
+        triggerPearlAnimation(1, YES);
     } else if (event == 4) {
         AudioServicesPlaySystemSound(1394);
-        if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-            [activeLockElementProvider setAuthenticated:YES];
-        }
-        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-            [activeLockElementProvider handleBiometricEvent:4];
-        }
+        triggerPearlAnimation(4, YES);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            isBioActive = NO;
+            triggerPearlAnimation(4, NO);
         });
     } else if (event == 8 || event == 9) {
         AudioServicesPlaySystemSound(1395);
-        if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-            [activeLockElementProvider setAuthenticated:NO];
-        }
-        if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-            [activeLockElementProvider handleBiometricEvent:9];
-        }
+        triggerPearlAnimation(9, YES);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            isBioActive = NO;
+            triggerPearlAnimation(9, NO);
         });
     }
 }
-
 %end
 
 // ============================================================================
-// GIỮ NGUYÊN HOÀN TOÀN TẤT CẢ CÁC HOOK CỦA VISIBLEISLAND (BỔ SUNG CHỐNG ĐÈ LỖI 5)
+// CẤU HÌNH GIAO DIỆN HỆ THỐNG CỦA VISIBLEISLAND
 // ============================================================================
 %hook SBSystemApertureWindow
 
@@ -526,105 +470,42 @@ static BOOL isHandlingBioEvent = NO;
     if (scaleEnabled && fixEnabled) {
         self.transform = CGAffineTransformMakeScale(scale, scale);
         NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig;
+        if ([deviceModel isEqualToString:@"iPhone10,3"] || [deviceModel isEqualToString:@"iPhone10,6"] ||
+            [deviceModel isEqualToString:@"iPhone11,2"] || [deviceModel isEqualToString:@"iPhone12,3"]) {
             CGFloat SyPos = 20.5 / scale;
             CGRect frame = self.frame;
             frame.origin.y = SyPos;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            CGFloat SyPos = 20.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            CGFloat SyPos = 20.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            CGFloat SyPos = 20.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max FAKE OFFSETS??
-            %orig;
+        } else if ([deviceModel isEqualToString:@"iPhone11,6"] || [deviceModel isEqualToString:@"iPhone12,5"] ||
+                   [deviceModel isEqualToString:@"iPhone11,8"] || [deviceModel isEqualToString:@"iPhone12,1"] ||
+                   [deviceModel isEqualToString:@"iPhone14,4"]) {
             CGFloat SyPos = 22.5 / scale;
             CGRect frame = self.frame;
             frame.origin.y = SyPos;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max FAKE OFFSTES??
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11 FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12 FIND OFFSETS - USING ESTIMATED
-            %orig;
+        } else if ([deviceModel isEqualToString:@"iPhone13,2"] || [deviceModel isEqualToString:@"iPhone13,3"]) {
             CGFloat SyPos = 21.5 / scale;
             CGRect frame = self.frame;
             frame.origin.y = SyPos;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGFloat SyPos = 21.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini FIND OFFSETS - USING ESTIMATED
-            %orig;
+        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) {
             CGFloat SyPos = 19.5 / scale;
             CGRect frame = self.frame;
             frame.origin.y = SyPos;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max FIND OFFSETS - USING ESTIMATED
-            %orig;
+        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) {
             CGFloat SyPos = 22.3 / scale;
             CGRect frame = self.frame;
             frame.origin.y = SyPos;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig;
-            CGFloat SyPos = 24 / scale;
+        } else if ([deviceModel isEqualToString:@"iPhone14,5"] || [deviceModel isEqualToString:@"iPhone14,2"] ||
+                   [deviceModel isEqualToString:@"iPhone14,7"]) {
+            CGFloat SyPos = 24.0 / scale;
             CGRect frame = self.frame;
             frame.origin.y = SyPos;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            CGFloat SyPos = 24 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig;
-            CGFloat SyPos = 24 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini FAKE OFFSETS??
-            %orig;
-            CGFloat SyPos = 22.5 / scale;
-            CGRect frame = self.frame;
-            frame.origin.y = SyPos;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max FAKE OFFSETS??
-            %orig;
-            CGFloat SyPos = 26 / scale;
+        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) {
+            CGFloat SyPos = 26.0 / scale;
             CGRect frame = self.frame;
             frame.origin.y = SyPos;
             self.frame = frame;
@@ -642,90 +523,44 @@ static BOOL isHandlingBioEvent = NO;
         self.frame = frame;
     } else if (fixEnabled && !scaleEnabled) {
         NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
+        if ([deviceModel isEqualToString:@"iPhone10,3"] || [deviceModel isEqualToString:@"iPhone10,6"] ||
+            [deviceModel isEqualToString:@"iPhone11,2"] || [deviceModel isEqualToString:@"iPhone12,3"]) {
             %orig;
             CGRect frame = self.frame;
             frame.origin.y = 20.5;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 20.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 20.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 20.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max FAKE OFFSETS??
+        } else if ([deviceModel isEqualToString:@"iPhone11,6"] || [deviceModel isEqualToString:@"iPhone12,5"] ||
+                   [deviceModel isEqualToString:@"iPhone11,8"] || [deviceModel isEqualToString:@"iPhone12,1"] ||
+                   [deviceModel isEqualToString:@"iPhone14,4"]) {
             %orig;
             CGRect frame = self.frame;
             frame.origin.y = 22.5;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max FAKE OFFSTES??
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11 FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12 FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,2"] || [deviceModel isEqualToString:@"iPhone13,3"]) {
             %orig;
             CGRect frame = self.frame;
             frame.origin.y = 21.5;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro FIND OFFSETS - USING ESTIMATED
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 21.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) {
             %orig;
             CGRect frame = self.frame;
             frame.origin.y = 19.5;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max FIND OFFSETS - USING ESTIMATED
+        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) {
             %orig;
             CGRect frame = self.frame;
             frame.origin.y = 22.3;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
+        } else if ([deviceModel isEqualToString:@"iPhone14,5"] || [deviceModel isEqualToString:@"iPhone14,2"] ||
+                   [deviceModel isEqualToString:@"iPhone14,7"]) {
             %orig;
             CGRect frame = self.frame;
-            frame.origin.y = 24;
+            frame.origin.y = 24.0;
             self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
+        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) {
             %orig;
             CGRect frame = self.frame;
-            frame.origin.y = 24;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 24;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini FAKE OFFSETS??
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 22.5;
-            self.frame = frame;
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max FAKE OFFSETS??
-            %orig;
-            CGRect frame = self.frame;
-            frame.origin.y = 26;
+            frame.origin.y = 26.0;
             self.frame = frame;
         }
     } else if (posEnabled && !scaleEnabled) {
@@ -734,7 +569,7 @@ static BOOL isHandlingBioEvent = NO;
         frame.origin.y = yPos;
         frame.origin.x = xPos;
         self.frame = frame;
-        } else if ((scaleEnabled && !posEnabled) || (scaleEnabled && !fixEnabled)) {
+    } else if ((scaleEnabled && !posEnabled) || (scaleEnabled && !fixEnabled)) {
         self.transform = CGAffineTransformMakeScale(scale, scale);
     }
 }
@@ -742,21 +577,16 @@ static BOOL isHandlingBioEvent = NO;
 %end
 
 %hook _SBSystemApertureMagiciansCurtainView
-
--(void)didMoveToWindow {
-    if (fixEnabled) {
-        self.hidden = YES;
-    } else if (posEnabled) {
+- (void)didMoveToWindow {
+    if (fixEnabled || posEnabled) {
         self.hidden = YES;
     } else {
         self.hidden = NO;
     }
 }
-
 %end
 
 %hook _SBGainMapView
-
 - (void)didMoveToWindow {
     if (hideEnabled) {
         if (self.superview) {
@@ -764,11 +594,9 @@ static BOOL isHandlingBioEvent = NO;
         }
     }
 }
-
 %end
 
 %hook _SBSystemApertureContainerViewContentView
-
 - (void)layoutSubviews {
     UIColor *backgroundColor = [self backgroundColor];
     if (colorEnabled) {
@@ -779,11 +607,9 @@ static BOOL isHandlingBioEvent = NO;
     }
     %orig;
 }
-
 %end
 
 %hook SBFTouchPassThroughView
-
 - (void)layoutSubviews {
     %orig;
     if (transEnabled) {
@@ -793,7 +619,8 @@ static BOOL isHandlingBioEvent = NO;
                 targetSubview.alpha = alpha;
             }
         }
-    } if (lineDisabled) {
+    } 
+    if (lineDisabled) {
         if (self.subviews.count == 4) {
             UIView *lineView = self.subviews[1];
             if (lineView.alpha == 1.0 && lineView.userInteractionEnabled == 0) {
@@ -802,120 +629,37 @@ static BOOL isHandlingBioEvent = NO;
         }
     }
 }
-
 %end
 
 %hook SBBannerWindow
-
 - (CGRect)frame {
     if (notificationFix) {
         NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
+        if ([deviceModel isEqualToString:@"iPhone10,3"] || [deviceModel isEqualToString:@"iPhone10,6"] ||
+            [deviceModel isEqualToString:@"iPhone11,2"] || [deviceModel isEqualToString:@"iPhone12,3"] ||
+            [deviceModel isEqualToString:@"iPhone13,2"] || [deviceModel isEqualToString:@"iPhone13,3"]) {
             %orig;
             return CGRectMake(0, 35, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            return CGRectMake(0, 35, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            return CGRectMake(0, 35, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            return CGRectMake(0, 35, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max
+        } else if ([deviceModel isEqualToString:@"iPhone11,6"] || [deviceModel isEqualToString:@"iPhone12,5"] ||
+                   [deviceModel isEqualToString:@"iPhone11,8"] || [deviceModel isEqualToString:@"iPhone12,1"]) {
             %orig;
             return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max
-            %orig;
-            return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR
-            %orig;
-            return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11
-            %orig;
-            return CGRectMake(0, 37, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12
-            %orig;
-            return CGRectMake(0, 35, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro
-            %orig;
-            return CGRectMake(0, 35, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini
+        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) {
             %orig;
             return CGRectMake(0, 33, 360, 780);
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max
+        } else if ([deviceModel isEqualToString:@"iPhone13,4"] || [deviceModel isEqualToString:@"iPhone14,4"]) {
             %orig;
             return CGRectMake(0, 38, 428, 926);
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
+        } else if ([deviceModel isEqualToString:@"iPhone14,5"] || [deviceModel isEqualToString:@"iPhone14,2"] ||
+                   [deviceModel isEqualToString:@"iPhone14,7"]) {
             %orig;
             return CGRectMake(0, 40, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            return CGRectMake(0, 40, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig;
-            return CGRectMake(0, 40, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini
-            %orig;
-            return CGRectMake(0, 38, 360, 780);
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max
+        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) {
             %orig;
             return CGRectMake(0, 42, 428, 926);
         }
     } else if (notEnabled) {
-        NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig;
-            return CGRectMake(xNot, yNot, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            return CGRectMake(xNot, yNot, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            return CGRectMake(xNot, yNot, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            return CGRectMake(xNot, yNot, 375, 812);
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max
-            %orig;
-            return CGRectMake(xNot, yNot, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11
-            %orig;
-            return CGRectMake(xNot, yNot, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR
-            %orig;
-            return CGRectMake(xNot, yNot, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11
-            %orig;
-            return CGRectMake(xNot, yNot, 414, 896);
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini
-            %orig;
-            return CGRectMake(xNot, yNot, 360, 780);
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max
-            %orig;
-            return CGRectMake(xNot, yNot, 428, 926);
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig;
-            return CGRectMake(xNot, yNot, 390, 844);
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini
-            %orig;
-            return CGRectMake(xNot, yNot, 360, 780);
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max
-            %orig;
-            return CGRectMake(xNot, yNot, 428, 926);
-        }
+        return CGRectMake(xNot, yNot, self.bounds.size.width, self.bounds.size.height);
     }
     return %orig;
 }
@@ -923,99 +667,29 @@ static BOOL isHandlingBioEvent = NO;
 - (void)setFrame:(CGRect)frame {
     if (notificationFix) {
         NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
+        if ([deviceModel isEqualToString:@"iPhone10,3"] || [deviceModel isEqualToString:@"iPhone10,6"] ||
+            [deviceModel isEqualToString:@"iPhone11,2"] || [deviceModel isEqualToString:@"iPhone12,3"] ||
+            [deviceModel isEqualToString:@"iPhone13,2"] || [deviceModel isEqualToString:@"iPhone13,3"]) {
             %orig(CGRectMake(0, 35, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig(CGRectMake(0, 35, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig(CGRectMake(0, 35, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig(CGRectMake(0, 35, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max
+        } else if ([deviceModel isEqualToString:@"iPhone11,6"] || [deviceModel isEqualToString:@"iPhone12,5"] ||
+                   [deviceModel isEqualToString:@"iPhone11,8"] || [deviceModel isEqualToString:@"iPhone12,1"]) {
             %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max
-            %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR
-            %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11
-            %orig(CGRectMake(0, 37, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12
-            %orig(CGRectMake(0, 35, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro
-            %orig(CGRectMake(0, 35, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini
+        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) {
             %orig(CGRectMake(0, 33, 360, 780));
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max
+        } else if ([deviceModel isEqualToString:@"iPhone13,4"] || [deviceModel isEqualToString:@"iPhone14,4"]) {
             %orig(CGRectMake(0, 38, 428, 926));
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
+        } else if ([deviceModel isEqualToString:@"iPhone14,5"] || [deviceModel isEqualToString:@"iPhone14,2"] ||
+                   [deviceModel isEqualToString:@"iPhone14,7"]) {
             %orig(CGRectMake(0, 40, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig(CGRectMake(0, 40, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig(CGRectMake(0, 40, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini
-            %orig(CGRectMake(0, 38, 360, 780));
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max
+        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) {
             %orig(CGRectMake(0, 42, 428, 926));
         }
     } else if (notEnabled) {
-        NSString *deviceModel = [Model deviceModel];
-        if ([deviceModel isEqualToString:@"iPhone10,3"]) { //X
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone10,6"]) { //X
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone11,2"]) { //XS
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone12,3"]) { //11 Pro
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 375, 812));
-        } else if ([deviceModel isEqualToString:@"iPhone11,6"]) { //XS Max
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,5"]) { //11 Pro Max
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone11,8"]) { //XR
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone12,1"]) { //11
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 414, 896));
-        } else if ([deviceModel isEqualToString:@"iPhone13,2"]) { //12
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone13,3"]) { //12 Pro
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone13,1"]) { //12 Mini
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 360, 780));
-        } else if ([deviceModel isEqualToString:@"iPhone13,4"]) { //12 Pro Max
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 428, 926));
-        } else if ([deviceModel isEqualToString:@"iPhone14,5"]) { //13
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,2"]) { //13 Pro
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,7"]) { //14
-            %orig(CGRectMake(xNot, yNot, 390, 844));
-        } else if ([deviceModel isEqualToString:@"iPhone14,4"]) { //13 Mini
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 360, 780));
-        } else if ([deviceModel isEqualToString:@"iPhone14,3"]) { //13 Pro Max
-            %orig;
-            %orig(CGRectMake(xNot, yNot, 428, 926));
-        }
+        %orig(CGRectMake(xNot, yNot, frame.size.width, frame.size.height));
     } else {
         %orig(frame);
     }
 }
-
 %end
 
 static void respring(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -1048,50 +722,19 @@ void preferencesChanged(){
 
 static void handleExternalFaceIDTrigger(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        SBSystemApertureController *saController = [%c(SBSystemApertureController) sharedInstance];
-
         if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.scanning"))) {
-            isBioActive = YES;
-            [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
-            if (activeLockElementProvider) {
-                if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                    [activeLockElementProvider handleBiometricEvent:1];
-                }
-                if (saController && [saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
-                    [saController elementRequestsUpdateToPreferredLayoutMode:activeLockElementProvider];
-                }
-            }
+            triggerPearlAnimation(1, YES);
         } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.success"))) {
             AudioServicesPlaySystemSound(1394);
-            if (activeLockElementProvider) {
-                if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-                    [activeLockElementProvider setAuthenticated:YES];
-                }
-                if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                    [activeLockElementProvider handleBiometricEvent:4];
-                }
-            }
+            triggerPearlAnimation(4, YES);
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                isBioActive = NO;
-                if (saController && activeLockElementProvider && [saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
-                    [saController elementRequestsUpdateToPreferredLayoutMode:activeLockElementProvider];
-                }
+                triggerPearlAnimation(4, NO);
             });
         } else if (CFEqual(name, CFSTR("com.ethxnn88.visibleisland.failure"))) {
             AudioServicesPlaySystemSound(1395);
-            if (activeLockElementProvider) {
-                if ([activeLockElementProvider respondsToSelector:@selector(setAuthenticated:)]) {
-                    [activeLockElementProvider setAuthenticated:NO];
-                }
-                if ([activeLockElementProvider respondsToSelector:@selector(handleBiometricEvent:)]) {
-                    [activeLockElementProvider handleBiometricEvent:9];
-                }
-            }
+            triggerPearlAnimation(9, YES);
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                isBioActive = NO;
-                if (saController && activeLockElementProvider && [saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
-                    [saController elementRequestsUpdateToPreferredLayoutMode:activeLockElementProvider];
-                }
+                triggerPearlAnimation(9, NO);
             });
         }
     });
