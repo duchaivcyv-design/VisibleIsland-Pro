@@ -215,7 +215,7 @@ static BOOL lineDisabled;
 @end
 
 // ============================================================================
-// HOOK HỆ THỐNG GỐC: KÍCH HOẠT PEARL AUTHENTICATING ELEMENT CHO DYNAMIC ISLAND
+// HOOK HỆ THỐNG GỐC: ÉP HIỂN THỊ VÀ RENDER VIEW FACE ID THẬT TRÊN DYNAMIC ISLAND
 // ============================================================================
 
 static SBSystemAperturePearlAuthenticatingElement *activePearlElement = nil;
@@ -244,7 +244,7 @@ static SBSystemAperturePearlAuthenticatingElement *getPearlElement() {
     return activePearlElement;
 }
 
-// Hàm cốt lõi kích hoạt hoạt ảnh quét Face ID / Vân tay và ép đảo bung mở (Mode 3)
+// Hàm kích hoạt chi tiết: Ép view hiển thị, không bị ẩn, và ra lệnh cập nhật layout mode 3
 static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
     dispatch_async(dispatch_get_main_queue(), ^{
         isBioActive = expanding;
@@ -253,10 +253,25 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
             if ([pearl respondsToSelector:@selector(activate)]) {
                 [pearl activate];
             }
+            if ([pearl respondsToSelector:@selector(setAuthenticating:)]) {
+                [pearl setAuthenticating:expanding];
+            }
             if ([pearl respondsToSelector:@selector(setBiometricEvent:)]) {
                 [pearl setBiometricEvent:bioEvent];
             } else if ([pearl respondsToSelector:@selector(setBioEvent:)]) {
                 [pearl setBioEvent:bioEvent];
+            }
+            
+            // Ép view của element hiện hình trực tiếp nếu đang bị ẩn
+            UIView *eView = nil;
+            if ([pearl respondsToSelector:@selector(elementView)]) {
+                eView = [pearl elementView];
+            }
+            if (eView) {
+                eView.hidden = NO;
+                eView.alpha = 1.0;
+                [eView setNeedsLayout];
+                [eView layoutIfNeeded];
             }
         }
         
@@ -264,12 +279,44 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
         if (saController && pearl) {
             if ([saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:)]) {
                 [saController elementRequestsUpdateToPreferredLayoutMode:pearl];
+            } else if ([saController respondsToSelector:@selector(elementRequestsUpdateToPreferredLayoutMode:forReason:)]) {
+                [saController elementRequestsUpdateToPreferredLayoutMode:pearl forReason:@"ForceBioDisplay"];
             }
         }
     });
 }
 
-// 1. Ép SystemAperture cấp quyền hiển thị và mở rộng tối đa (Mode 3) cho Pearl Element
+// 1. Hook trực tiếp SBSystemAperturePearlAuthenticatingElement để ép Render View thật
+%hook SBSystemAperturePearlAuthenticatingElement
+
+- (id)init {
+    id orig = %orig;
+    activePearlElement = orig;
+    return orig;
+}
+
+- (BOOL)isAuthenticating {
+    return isBioActive ? YES : %orig;
+}
+
+// Ép trả về view thật, không được phép nil hoặc ẩn
+- (UIView *)elementView {
+    UIView *v = %orig;
+    if (v) {
+        v.hidden = NO;
+        v.alpha = 1.0;
+        v.userInteractionEnabled = YES;
+    }
+    return v;
+}
+
+- (void)setAuthenticating:(BOOL)authenticating {
+    %orig(isBioActive ? YES : authenticating);
+}
+
+%end
+
+// 2. Ép SystemAperture cấp quyền hiển thị và mở rộng tối đa (Mode 3)
 %hook SBSystemApertureElementAuthority
 
 - (BOOL)systemApertureApertureElementAuthority:(id)authority isActivityElementAlerting:(id)element {
@@ -300,7 +347,7 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 
 %end
 
-// 2. Ép SBSystemApertureController nhận diện phần cứng Pearl luôn sẵn sàng
+// 3. Ép SBSystemApertureController nhận diện phần cứng Pearl luôn sẵn sàng
 %hook SBSystemApertureController
 
 - (BOOL)isPearlAvailable {
@@ -330,7 +377,7 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 %end
 
-// 3. Xử lý tất cả các sự kiện sinh trắc học phần cứng (Touch ID / Face ID)
+// 4. Xử lý tất cả các sự kiện sinh trắc học phần cứng (Touch ID / Face ID)
 %hook SBUIBiometricResource
 - (BOOL)hasPearlSupport {
     return YES;
@@ -381,7 +428,7 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 %end
 
-// 4. Các điểm kích hoạt khi bật màn hình / mở khóa
+// 5. Các điểm kích hoạt khi bật màn hình / mở khóa
 %hook CSCoverSheetViewController
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
@@ -410,9 +457,9 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 %end
 
-// 5. Vuốt lên gõ Passcode
+// 6. Vuốt lên gõ Passcode
 %hook SBUIPasscodeBiometricAuthenticationView
-- (setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
+- (void)setBiometricAuthenticationState:(NSInteger)state animated:(BOOL)animated {
     %orig;
     if (state == 1 || state == 2) {
         [[%c(SBUIBiometricResource) sharedInstance] noteScreenWillTurnOn];
@@ -427,7 +474,7 @@ static void triggerPearlAnimation(unsigned long long bioEvent, BOOL expanding) {
 }
 %end
 
-// 6. Xác thực In-app (App Store, Ảnh ẩn, Keychain...)
+// 7. Xác thực In-app (App Store, Ảnh ẩn, Keychain...)
 %hook SBBiometricMonitorPearlDataSource
 - (BOOL)isPosePresenceDetected {
     return YES;
