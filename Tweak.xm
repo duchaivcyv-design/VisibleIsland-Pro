@@ -97,8 +97,10 @@ static BOOL lineDisabled;
 - (void)setBioEvent:(unsigned long long)arg1;
 - (void)setBiometricEvent:(unsigned long long)arg1;
 - (BOOL)isAuthenticating;
+- (void)setAuthenticating:(BOOL)arg1; // Thêm dòng này để fix lỗi biên dịch
 - (UIView *)elementView;
 @end
+
 
 @interface SBSystemApertureController : NSObject
 + (id)sharedInstance;
