@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #include "VISRootListController.h"
+#include "VISL10n.h"
 #include <sys/sysctl.h>
 #import <UIKit/UIKit.h>
 
@@ -19,13 +20,19 @@
 			[msg appendFormat:@"Thư mục bundle: %@", [[NSFileManager defaultManager] contentsOfDirectoryAtPath:b.bundlePath error:nil]];
 			dispatch_async(dispatch_get_main_queue(), ^{
 				UIAlertController *a = [UIAlertController alertControllerWithTitle:@"[VIS] Không nạp được Root" message:msg preferredStyle:UIAlertControllerStyleAlert];
-				[a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+				[a addAction:[UIAlertAction actionWithTitle:[VISL10n tr:@"OK"] style:UIAlertActionStyleDefault handler:nil]];
 				[self presentViewController:a animated:YES completion:nil];
 			});
 		}
 	}
+		[VISL10n localizeSpecifiers:_specifiers forController:self title:@"VisibleIsland"];
 
 	return _specifiers;
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [VISL10n refreshController:self];
 }
 
 - (void)viewDidLoad {
@@ -37,17 +44,17 @@
 
 - (void)respringAsk:(id)sender {
     UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"Respring"
-                         message:@"You are about to respring."
+        alertControllerWithTitle:[VISL10n tr:@"Respring"]
+                         message:[VISL10n tr:@"You are about to respring."]
                   preferredStyle:UIAlertControllerStyleAlert];
 
     UIAlertAction *defaultAction = [UIAlertAction
-        actionWithTitle:@"Cancel"
+        actionWithTitle:[VISL10n tr:@"Cancel"]
                   style:UIAlertActionStyleCancel
                 handler:nil];
 
     UIAlertAction *yes = [UIAlertAction
-        actionWithTitle:@"Respring"
+        actionWithTitle:[VISL10n tr:@"Respring"]
                   style:UIAlertActionStyleDestructive
                 handler:^(UIAlertAction *action) {
                     [self respring];
@@ -139,11 +146,11 @@
 }
 
 + (void)fixUnsupported {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Device not supported"
-                                                                   message:@"This device is not officially supported by VisibleIsland, meaning there are no 'perfect' offsets found for your device as of now. You can enable this option and use the built-in estimated offsets, or disable it and use custom offsets. Support for this device will be added in a future build."
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[VISL10n tr:@"Device not supported"]
+                                                                   message:[VISL10n tr:@"This device is not officially supported by VisibleIsland, meaning there are no 'perfect' offsets found for your device as of now. You can enable this option and use the built-in estimated offsets, or disable it and use custom offsets. Support for this device will be added in a future build."]
                                                             preferredStyle:UIAlertControllerStyleAlert];
 
-    UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"OK"
+    UIAlertAction *okAction = [UIAlertAction actionWithTitle:[VISL10n tr:@"OK"]
                                                        style:UIAlertActionStyleDefault
                                                      handler:^(UIAlertAction *action) {
                                                      }];
@@ -186,7 +193,7 @@
         footerLabel.textAlignment = NSTextAlignmentCenter;
         footerLabel.textColor = [UIColor grayColor];
         footerLabel.font = [UIFont systemFontOfSize:14.0];
-        footerLabel.text = @"VisibleIsland v2.0 | Copyright © ethxnn88";
+        footerLabel.text = @"VisibleIsland v2.0 | prefs 14.11-c | © ethxnn88";
         return footerLabel;
     } else {
         return nil;
@@ -196,7 +203,7 @@
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
     if (section == [tableView numberOfSections] - 1) {
         return 50;
-    } else if (section == [tableView numberOfSections] - 5) {
+    } else if (section == 1 || section == 3) {
         return 45;
     } else {
         return 0;

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSLinkListCell</string>
+			<key>default</key>
+			<string>en</string>
+			<key>defaults</key>
+			<string>com.ethxnn88.visibleislandprefs</string>
+			<key>detail</key>
+			<string>PSListItemsController</string>
+			<key>key</key>
+			<string>language</string>
+			<key>label</key>
+			<string>Language</string>
+			<key>shortTitles</key>
+			<array>
+				<string>English</string>
+				<string>Tiếng Việt</string>
+			</array>
+			<key>validTitles</key>
+			<array>
+				<string>English</string>
+				<string>Tiếng Việt</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<string>en</string>
+				<string>vi</string>
+			</array>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>About</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSTitleValueCell</string>
+			<key>get</key>
+			<string>staticValue:</string>
+			<key>id</key>
+			<string>author</string>
+			<key>label</key>
+			<string>Author</string>
+			<key>value</key>
+			<string>ethxnn88</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSTitleValueCell</string>
+			<key>get</key>
+			<string>staticValue:</string>
+			<key>id</key>
+			<string>editor</string>
+			<key>label</key>
+			<string>Edited by</string>
+			<key>value</key>
+			<string>sleeper2009</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSTitleValueCell</string>
+			<key>get</key>
+			<string>staticValue:</string>
+			<key>id</key>
+			<string>contributor</string>
+			<key>label</key>
+			<string>Contribute ideas</string>
+			<key>value</key>
+			<string>TaoJB</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSTitleValueCell</string>
+			<key>get</key>
+			<string>staticValue:</string>
+			<key>id</key>
+			<string>linkbio</string>
+			<key>label</key>
+			<string>My Linkbio</string>
+			<key>value</key>
+			<string>Linkbio.co/sleeper</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>More</string>
+</dict>
+</plist>

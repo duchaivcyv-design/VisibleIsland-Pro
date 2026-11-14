@@ -1,9 +1,9 @@
 Package: com.ethxnn88.visibleisland
-Name: VisibleIsland update
+Name: Visible (Is)land 26
 Version: 3.0
 Architecture: iphoneos-arm64
-Description: Enable and fix Dynamic Island on older devices.
-Maintainer: ethxnn88, TaoJB
-Author: ethxnn88, TaoJB
+Description: Bao gồm các tính năng gốc của Visiable Island. Thêm hiệu ứng mở khoá ứng dụng Face ID trên Dynamic Island, Thêm hoạt ảnh Face ID ở màn hình khoá
+Maintainer: Sleeper2009 ethxnn88, TaoJB, 
+Author: Sleeper2009 ethxnn88, TaoJB
 Section: Tweaks
 Depends: mobilesubstrate (>= 0.9.5000), preferenceloader, firmware (>= 16.0)
