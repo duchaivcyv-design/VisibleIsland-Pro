@@ -280,15 +280,25 @@ static const CGFloat kDropletGap      = 6.0;
 @end
 
 static NSUInteger CountLiveTasks(UIView *root) {
-    __block NSUInteger n = 0;
-    void (^walk)(UIView *) = ^(UIView *v) {
+    if (!root) return 0;
+
+    NSUInteger n = 0;
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+
+    while (stack.count > 0) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+
         NSString *cls = NSStringFromClass([v class]);
         if ([cls containsString:@"Activity"] || [cls containsString:@"LiveSession"]) {
             n++;
         }
-        for (UIView *s in v.subviews) walk(s);
-    };
-    walk(root);
+
+        if (v.subviews.count > 0) {
+            [stack addObjectsFromArray:v.subviews];
+        }
+    }
+
     return n / 2;
 }
 
