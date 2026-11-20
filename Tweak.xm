@@ -2,6 +2,7 @@
 #import <Foundation/Foundation.h>
 #import <sys/sysctl.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 // ============================================================
 // GỐC — biến global giữ nguyên
@@ -97,8 +98,6 @@ static const CGFloat kDropletGap      = 6.0;
 }
 
 @end
-
-#import <objc/message.h>
 
 // ============================================================
 // 1. LẤY SỐ LƯỢNG LIVE ACTIVITY BẰNG PRIVATE API (Không dùng view)
@@ -639,6 +638,7 @@ static NSUInteger CountLiveTasks(UIView *root) {
         
         [[IslandAnimator shared] setTaskCount:live];
     }
+} // <--- DẤU NGOẶC ĐÓNG HÀM ĐÃ ĐƯỢC THÊM VÀO ĐÂY
 
 - (void)didMoveToWindow {
     %orig;
