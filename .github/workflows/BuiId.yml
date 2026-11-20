@@ -13,32 +13,15 @@ env:
 jobs:
   build-rootless:
     name: Build Rootless Package
-    runs-on: ubuntu-latest
+    runs-on: macos-15
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install Build Dependencies (Ubuntu)
+    - name: Install Build Dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          xz-utils dpkg fakeroot make cmake zstd git curl \
-          llvm clang lld libplist-dev libssl-dev libpng-dev
-
-        # Tải ldid binary từ ProcursusTeam releases
-        sudo mkdir -p /usr/local/bin
-        sudo curl -L \
-          https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus8/ldid_linux_x86_64 \
-          -o /usr/local/bin/ldid
-        sudo chmod +x /usr/local/bin/ldid
-        
-        # Verify installation (dùng -h thay vì -v)
-        ldid -h || true
-
-        # Symlink llvm-lipo -> lipo
-        LIPO_BIN=$(find /usr/bin -name "llvm-lipo*" | head -n 1)
-        sudo ln -sf "$LIPO_BIN" /usr/bin/lipo
+        brew install ldid xz dpkg make cmake zstd
 
     - name: Setup Theos with iOS SDKs
       run: |
@@ -54,47 +37,35 @@ jobs:
         git clone --depth 1 https://github.com/jmpews/Dobby.git /tmp/Dobby
         cd /tmp/Dobby
 
-        # Tải toolchain file chuẩn vì Dobby mới đã bỏ file này
-        curl -L -o cmake/ios.toolchain.cmake https://raw.githubusercontent.com/ygmtx/ios-cmake/master/ios.toolchain.cmake
-
-        # SDK mới nhất
-        export SDK_PATH=$(ls -d $THEOS/sdks/iPhoneOS*.sdk | sort -V | tail -n 1)
-        export TOOLCHAIN_FILE="$PWD/cmake/ios.toolchain.cmake"
-        echo "Using SDK: $SDK_PATH"
-        echo "Using Toolchain: $TOOLCHAIN_FILE"
-
         # --- Build arm64 slice ---
         mkdir build_arm64 && cd build_arm64
         cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
-          -DPLATFORM=OS64 \
-          -DARCHS="arm64" \
+          -DCMAKE_SYSTEM_NAME=iOS \
+          -DCMAKE_OSX_ARCHITECTURES=arm64 \
           -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-          -DCMAKE_OSX_SYSROOT="$SDK_PATH" \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
           -DCMAKE_BUILD_TYPE=Release \
           -DDOBBY_GENERATE_SHARED=OFF
-        make -j$(nproc)
+        make -j$(sysctl -n hw.ncpu)
         cd ..
 
         # --- Build arm64e slice ---
         mkdir build_arm64e && cd build_arm64e
         cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
-          -DPLATFORM=OS64 \
-          -DARCHS="arm64e" \
-          -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-          -DCMAKE_OSX_SYSROOT="$SDK_PATH" \
+          -DCMAKE_SYSTEM_NAME=iOS \
+          -DCMAKE_OSX_ARCHITECTURES=arm64e \
+          -DCMAKE_SYSTEM_PROCESSOR=arm64e \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
           -DCMAKE_BUILD_TYPE=Release \
           -DDOBBY_GENERATE_SHARED=OFF
-        make -j$(nproc)
+        make -j$(sysctl -n hw.ncpu)
         cd ..
 
-        # --- Ghép universal binary ---
+        # --- Tự động tìm file libdobby.a ---
         ARM64_LIB=$(find build_arm64 -name "libdobby.a" | head -n 1)
         ARM64E_LIB=$(find build_arm64e -name "libdobby.a" | head -n 1)
 
+        # --- Ghép 2 slice thành universal binary và copy vào project ---
         mkdir -p "$GITHUB_WORKSPACE/vendor/dobby"
         lipo -create \
           "$ARM64_LIB" \
@@ -107,10 +78,8 @@ jobs:
 
     - name: Compile and Package (Rootless)
       run: |
-        export PATH="$THEOS/bin:$PATH"
-        export THEOS_PACKAGE_SCHEME=rootless
-        export FINALPACKAGE=1
-        make package
+        export PATH="$(brew --prefix make)/libexec/gnubin:$THEOS/bin:$PATH"
+        make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 
     - name: Collect Packages
       run: |
