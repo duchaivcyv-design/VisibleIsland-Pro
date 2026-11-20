@@ -54,10 +54,12 @@ jobs:
         git clone --depth 1 https://github.com/jmpews/Dobby.git /tmp/Dobby
         cd /tmp/Dobby
 
-        # SDK và toolchain
+        # Tải toolchain file chuẩn vì Dobby mới đã bỏ file này
+        curl -L -o cmake/ios.toolchain.cmake https://raw.githubusercontent.com/ygmtx/ios-cmake/master/ios.toolchain.cmake
+
+        # SDK mới nhất
         export SDK_PATH=$(ls -d $THEOS/sdks/iPhoneOS*.sdk | sort -V | tail -n 1)
         export TOOLCHAIN_FILE="$PWD/cmake/ios.toolchain.cmake"
-
         echo "Using SDK: $SDK_PATH"
         echo "Using Toolchain: $TOOLCHAIN_FILE"
 
