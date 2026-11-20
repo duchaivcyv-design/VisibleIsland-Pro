@@ -15,6 +15,13 @@ static char kVISLangKey;
             @"Enable Dynamic Island": @"Bật Dynamic Island",
             @"If your device isn't supported yet, use the custom positioning instead.": @"Nếu thiết bị của bạn chưa được hỗ trợ, hãy dùng vị trí tùy chỉnh.",
             @"Fix Island Position": @"Sửa vị trí Island",
+
+            // iPhone 18 Pro Max Island (fusion)
+            @"iPhone 18 Pro Max Island": @"Island iPhone 18 Pro Max",
+            @"Renders the iPhone 18 Pro Max pill (108.67×12.33pt, radius 18) with two 18pt droplets splitting left/right when 2+ Live Activities are active. Independent of the stock island above.": @"Vẽ viên thuốc iPhone 18 Pro Max (108.67×12.33pt, bán kính 18) với hai giọt nước 18pt tách ra trái/phải khi có từ 2 Live Activity trở lên. Hoạt động độc lập với Island gốc ở trên.",
+            @"Enable iPhone 18 Pro Max Island": @"Bật Island iPhone 18 Pro Max",
+
+            // Custom Island Positioning
             @"Custom Island Positioning": @"Vị trí Island tùy chỉnh",
             @"Use Custom Position": @"Dùng vị trí tùy chỉnh",
             @"X Position:": @"Vị trí X:",
@@ -22,18 +29,20 @@ static char kVISLangKey;
             @"Enter X Position": @"Nhập vị trí X",
             @"Enter Y Position": @"Nhập vị trí Y",
             @"Save": @"Lưu",
+
+            // Misc
             @"Misc": @"Khác",
-            @"Lock Icon on Island": @"Biểu tượng ổ khóa trên Island",
-            @"Face ID Animation": @"Hoạt ảnh Face ID",
-            @"Face ID Animation needs a respring after changing.": @"Hoạt ảnh Face ID cần respring sau khi thay đổi.",
-            @"App Lock Face ID on Island": @"Face ID khóa ứng dụng trên Island",
             @"Hide When Not in Use": @"Ẩn khi không sử dụng",
             @"Disable Island Outline": @"Tắt viền Island",
+
+            // Sub-pages
             @"Notifications": @"Thông báo",
             @"Color and Opacity": @"Màu sắc và độ mờ",
             @"Scale": @"Tỷ lệ",
             @"Source Code": @"Mã nguồn",
+            @"Twitter": @"Twitter",
             @"More": @"Thêm",
+
             // Color
             @"Custom Opacity": @"Độ mờ tùy chỉnh",
             @"Use Custom Opacity": @"Dùng độ mờ tùy chỉnh",
@@ -43,25 +52,29 @@ static char kVISLangKey;
             @"Red": @"Đỏ",
             @"Green": @"Xanh lá",
             @"Blue": @"Xanh dương",
+
             // Scale
             @"Custom Island Scale": @"Tỷ lệ Island tùy chỉnh",
             @"If you choose to use a custom scale, setting a custom position is recommended for best results.": @"Nếu dùng tỷ lệ tùy chỉnh, nên đặt cả vị trí tùy chỉnh để có kết quả tốt nhất.",
             @"Use Custom Scale": @"Dùng tỷ lệ tùy chỉnh",
             @"Scale:": @"Tỷ lệ:",
             @"Enter Scale": @"Nhập tỷ lệ",
+
             // Notifications
             @"Moves all incoming notification banners to below the Dynamic Island for better visibility.": @"Dời mọi biểu ngữ thông báo xuống dưới Dynamic Island để dễ nhìn hơn.",
             @"Fix Notification Positioning": @"Sửa vị trí thông báo",
             @"Custom Notification Positioning": @"Vị trí thông báo tùy chỉnh",
             @"Use custom positioning if you use a custom island position.": @"Dùng vị trí tùy chỉnh nếu bạn dùng vị trí Island tùy chỉnh.",
             @"Use Custom Notification Position": @"Dùng vị trí thông báo tùy chỉnh",
-            // Thêm
+
+            // More
             @"Language": @"Ngôn ngữ",
             @"About": @"Thông tin",
             @"Author": @"Tác giả",
             @"Edited by": @"Chỉnh sửa lại",
             @"Contribute ideas": @"Đóng góp ý tưởng",
-            // Hộp thoại
+
+            // Dialogs
             @"Respring": @"Respring",
             @"You are about to respring.": @"Bạn sắp respring máy.",
             @"Cancel": @"Hủy",
