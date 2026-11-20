@@ -98,11 +98,56 @@ static const CGFloat kDropletGap      = 6.0;
 
 @end
 
+#import <objc/message.h>
+
 // ============================================================
-// ISLAND18 — View (pill + 2 droplet)
+// 1. LẤY SỐ LƯỢNG LIVE ACTIVITY BẰNG PRIVATE API (Không dùng view)
+// ============================================================
+static NSUInteger GetActiveActivityCount(void) {
+    // Cách 1: Hỏi thẳng SBSystemApertureController
+    Class apertureClass = NSClassFromString(@"SBSystemApertureController");
+    if (apertureClass) {
+        SEL sharedSel = NSSelectorFromString(@"sharedInstance");
+        if ([apertureClass respondsToSelector:sharedSel]) {
+            id shared = ((id(*)(id, SEL))objc_msgSend)(apertureClass, sharedSel);
+            if (shared) {
+                SEL elemsSel = NSSelectorFromString(@"activeElements");
+                if ([shared respondsToSelector:elemsSel]) {
+                    NSArray *elems = ((NSArray*(*)(id, SEL))objc_msgSend)(shared, elemsSel);
+                    if (elems) return elems.count;
+                }
+            }
+        }
+    }
+
+    // Cách 2: Hỏi SBActivityManager
+    Class actMgrClass = NSClassFromString(@"SBActivityManager");
+    if (actMgrClass) {
+         SEL sharedSel = NSSelectorFromString(@"sharedInstance");
+         if ([actMgrClass respondsToSelector:sharedSel]) {
+             id shared = ((id(*)(id, SEL))objc_msgSend)(actMgrClass, sharedSel);
+             if (shared) {
+                 SEL actsSel = NSSelectorFromString(@"activities");
+                 if ([shared respondsToSelector:actsSel]) {
+                     NSArray *acts = ((NSArray*(*)(id, SEL))objc_msgSend)(shared, actsSel);
+                     if (acts) return acts.count;
+                 }
+                 actsSel = NSSelectorFromString(@"activeActivities");
+                 if ([shared respondsToSelector:actsSel]) {
+                     NSArray *acts = ((NSArray*(*)(id, SEL))objc_msgSend)(shared, actsSel);
+                     if (acts) return acts.count;
+                 }
+             }
+         }
+    }
+
+    return 0;
+}
+
+// ============================================================
+// 2. ISLAND VIEW — Chỉ vẽ giọt nước, ẩn hoàn toàn Pill đen
 // ============================================================
 @interface IslandView : UIView
-@property (nonatomic, strong) UIView *pillView;
 @property (nonatomic, strong) UIView *leftDroplet;
 @property (nonatomic, strong) UIView *rightDroplet;
 @property (nonatomic, strong) CAShapeLayer *metaballLayer;
@@ -120,27 +165,13 @@ static const CGFloat kDropletGap      = 6.0;
     self.clipsToBounds = NO;
     self.opaque = NO;
 
-    // Pill chính
-    _pillView = [[UIView alloc] initWithFrame:CGRectMake(
-        (frame.size.width - kIsland18Width) / 2.0,
-        (frame.size.height - kIsland18Height) / 2.0,
-        kIsland18Width, kIsland18Height)];
-    _pillView.backgroundColor = [UIColor blackColor];
-    _pillView.layer.cornerRadius = kIsland18Radius;
-    _pillView.layer.masksToBounds = YES;
-    _pillView.layer.cornerCurve = kCACornerCurveContinuous;
-    _pillView.layer.borderWidth = 0.5;
-    _pillView.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
-    _pillView.hidden = YES;
-    [self addSubview:_pillView];
+    // KHÔNG VẼ PILL Ở ĐÂY NỮA (Để VisibleIsland tự vẽ, tránh chấm đen)
 
-    // Hai droplet
     _leftDroplet = [self createDroplet];
     _rightDroplet = [self createDroplet];
     [self addSubview:_leftDroplet];
     [self addSubview:_rightDroplet];
 
-    // Metaball layer (chất lỏng dính)
     _metaballLayer = [CAShapeLayer layer];
     _metaballLayer.fillColor = [UIColor blackColor].CGColor;
     _metaballLayer.hidden = YES;
@@ -167,57 +198,46 @@ static const CGFloat kDropletGap      = 6.0;
 
 - (void)layoutForTaskCount:(NSUInteger)count animated:(BOOL)animated {
     _taskCount = count;
-
     CGFloat cx = self.bounds.size.width / 2.0;
     CGFloat cy = self.bounds.size.height / 2.0;
-    CGRect pillFrame = CGRectMake(cx - kIsland18Width/2.0,
-                                  cy - kIsland18Height/2.0,
-                                  kIsland18Width, kIsland18Height);
 
-    BOOL showPill = (count >= 1);
     BOOL showDrops = (count >= 2);
+    
+    // Khoảng cách từ tâm ra 2 bên (Đảo 18 Pro Max rộng ~108.67pt, gap ~6pt)
+    CGFloat dropXOffset = (kIsland18Width / 2.0) + kDropletGap + (kDropletDiameter / 2.0);
 
     void (^layoutBlock)(void) = ^{
-        self.pillView.frame = pillFrame;
-        self.pillView.hidden = !showPill;
-
         if (showDrops) {
-            CGFloat edgeL = cx - kIsland18Width/2.0;
-            CGFloat edgeR = cx + kIsland18Width/2.0;
             self.leftDroplet.frame = CGRectMake(
-                edgeL - kDropletGap - kDropletDiameter,
-                cy - kDropletDiameter/2.0,
+                cx - dropXOffset - (kDropletDiameter / 2.0),
+                cy - kDropletDiameter / 2.0,
                 kDropletDiameter, kDropletDiameter);
             self.rightDroplet.frame = CGRectMake(
-                edgeR + kDropletGap,
-                cy - kDropletDiameter/2.0,
+                cx + dropXOffset - (kDropletDiameter / 2.0),
+                cy - kDropletDiameter / 2.0,
                 kDropletDiameter, kDropletDiameter);
         }
         self.leftDroplet.hidden  = !showDrops;
         self.rightDroplet.hidden = !showDrops;
+        self.leftDroplet.alpha   = showDrops ? 1.0 : 0.0;
+        self.rightDroplet.alpha  = showDrops ? 1.0 : 0.0;
 
-        // Vẽ metaball path khi có droplet
-        if (showDrops) {
-            [self updateMetaballPath];
-        } else {
-            self.metaballLayer.hidden = YES;
-        }
+        [self updateMetaballPath];
     };
 
     if (animated) {
-        [UIView animateWithDuration:0.42
-                              delay:0
-             usingSpringWithDamping:0.72
-              initialSpringVelocity:0.6
-                            options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState
-                         animations:layoutBlock
-                         completion:nil];
+        [UIView animateWithDuration:0.42 delay:0 usingSpringWithDamping:0.72 initialSpringVelocity:0.6 options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState animations:layoutBlock completion:nil];
     } else {
         layoutBlock();
     }
 }
 
 - (void)updateMetaballPath {
+    if (self.taskCount < 2) {
+        self.metaballLayer.hidden = YES;
+        return;
+    }
+    
     CGFloat cx = self.bounds.size.width / 2.0;
     CGFloat cy = self.bounds.size.height / 2.0;
 
@@ -226,41 +246,38 @@ static const CGFloat kDropletGap      = 6.0;
     CGFloat pillTop = cy - kIsland18Height / 2.0;
     CGFloat pillBottom = cy + kIsland18Height / 2.0;
 
-    CGFloat dropLeftX = pillLeft - kDropletGap - kDropletDiameter / 2.0;
-    CGFloat dropRightX = pillRight + kDropletGap + kDropletDiameter / 2.0;
-    CGFloat dropCenterY = cy;
+    CGFloat dropLeftX = self.leftDroplet.center.x;
+    CGFloat dropRightX = self.rightDroplet.center.x;
     CGFloat dropR = kDropletDiameter / 2.0;
 
     UIBezierPath *path = [UIBezierPath bezierPath];
 
-    // Vẽ phần dính giữa pill và droplet trái (nếu khoảng cách đủ gần)
-    if (dropLeftX + dropR > pillLeft - 2) {
-        // Đường cong phía trên
-        [path moveToPoint:CGPointMake(pillLeft, pillTop)];
-        [path addQuadCurveToPoint:CGPointMake(dropLeftX, dropCenterY - dropR)
-                     controlPoint:CGPointMake(pillLeft - kDropletGap / 2.0, pillTop - 2)];
-        // Đường cong phía dưới
-        [path addQuadCurveToPoint:CGPointMake(pillLeft, pillBottom)
-                     controlPoint:CGPointMake(pillLeft - kDropletGap / 2.0, pillBottom + 2)];
-        [path closePath];
-    }
+    // Nối chất lỏng bên trái
+    [path moveToPoint:CGPointMake(pillLeft, pillTop)];
+    [path addQuadCurveToPoint:CGPointMake(dropLeftX, cy - dropR) controlPoint:CGPointMake(pillLeft - kDropletGap / 2.0, pillTop - 2)];
+    [path addQuadCurveToPoint:CGPointMake(pillLeft, pillBottom) controlPoint:CGPointMake(pillLeft - kDropletGap / 2.0, pillBottom + 2)];
+    [path closePath];
 
-    // Vẽ phần dính giữa pill và droplet phải
-    if (dropRightX - dropR < pillRight + 2) {
-        [path moveToPoint:CGPointMake(pillRight, pillTop)];
-        [path addQuadCurveToPoint:CGPointMake(dropRightX, dropCenterY - dropR)
-                     controlPoint:CGPointMake(pillRight + kDropletGap / 2.0, pillTop - 2)];
-        [path addQuadCurveToPoint:CGPointMake(pillRight, pillBottom)
-                     controlPoint:CGPointMake(pillRight + kDropletGap / 2.0, pillBottom + 2)];
-        [path closePath];
-    }
+    // Nối chất lỏng bên phải
+    [path moveToPoint:CGPointMake(pillRight, pillTop)];
+    [path addQuadCurveToPoint:CGPointMake(dropRightX, cy - dropR) controlPoint:CGPointMake(pillRight + kDropletGap / 2.0, pillTop - 2)];
+    [path addQuadCurveToPoint:CGPointMake(pillRight, pillBottom) controlPoint:CGPointMake(pillRight + kDropletGap / 2.0, pillBottom + 2)];
+    [path closePath];
 
     self.metaballLayer.path = path.CGPath;
-    self.metaballLayer.hidden = (path.isEmpty);
+    self.metaballLayer.hidden = NO;
 }
 
 - (void)pulse {
-    // giữ nguyên
+    [UIView animateWithDuration:0.28 delay:0 usingSpringWithDamping:0.55 initialSpringVelocity:0.9 options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState animations:^{
+        self.leftDroplet.transform = CGAffineTransformMakeScale(1.1, 1.1);
+        self.rightDroplet.transform = CGAffineTransformMakeScale(1.1, 1.1);
+    } completion:^(BOOL finished) {
+        [UIView animateWithDuration:0.3 animations:^{
+            self.leftDroplet.transform = CGAffineTransformIdentity;
+            self.rightDroplet.transform = CGAffineTransformIdentity;
+        }];
+    }];
 }
 
 @end
@@ -611,10 +628,17 @@ static NSUInteger CountLiveTasks(UIView *root) {
     if (fusionEnabled) {
         UIWindow *hostWin = (UIWindow *)self;
         [[IslandAnimator shared] attachToWindow:hostWin];
-        NSUInteger live = CountLiveTasks(self);
+        
+        // GỌI BẰNG PRIVATE API
+        NSUInteger live = GetActiveActivityCount();
+        
+        // Nếu API private trả về 0 (do app không phải Apple), fallback đếm view
+        if (live == 0) {
+            live = CountLiveTasks(self);
+        }
+        
         [[IslandAnimator shared] setTaskCount:live];
     }
-}
 
 - (void)didMoveToWindow {
     %orig;
