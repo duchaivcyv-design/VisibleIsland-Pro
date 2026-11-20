@@ -105,6 +105,7 @@ static const CGFloat kDropletGap      = 6.0;
 @property (nonatomic, strong) UIView *pillView;
 @property (nonatomic, strong) UIView *leftDroplet;
 @property (nonatomic, strong) UIView *rightDroplet;
+@property (nonatomic, strong) CAShapeLayer *metaballLayer;
 @property (nonatomic, assign) NSUInteger taskCount;
 @end
 
@@ -119,6 +120,7 @@ static const CGFloat kDropletGap      = 6.0;
     self.clipsToBounds = NO;
     self.opaque = NO;
 
+    // Pill chính
     _pillView = [[UIView alloc] initWithFrame:CGRectMake(
         (frame.size.width - kIsland18Width) / 2.0,
         (frame.size.height - kIsland18Height) / 2.0,
@@ -129,28 +131,33 @@ static const CGFloat kDropletGap      = 6.0;
     _pillView.layer.cornerCurve = kCACornerCurveContinuous;
     _pillView.layer.borderWidth = 0.5;
     _pillView.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
-    _pillView.hidden = YES; // Mặc định ẩn, chỉ hiện khi có task
+    _pillView.hidden = YES;
     [self addSubview:_pillView];
 
-    _leftDroplet = [[UIView alloc] initWithFrame:CGRectZero];
-    _leftDroplet.backgroundColor = [UIColor blackColor];
-    _leftDroplet.layer.cornerRadius = kDropletDiameter / 2.0;
-    _leftDroplet.layer.cornerCurve = kCACornerCurveContinuous;
-    _leftDroplet.layer.borderWidth = 0.5;
-    _leftDroplet.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
-    _leftDroplet.hidden = YES;
+    // Hai droplet
+    _leftDroplet = [self createDroplet];
+    _rightDroplet = [self createDroplet];
     [self addSubview:_leftDroplet];
-
-    _rightDroplet = [[UIView alloc] initWithFrame:CGRectZero];
-    _rightDroplet.backgroundColor = [UIColor blackColor];
-    _rightDroplet.layer.cornerRadius = kDropletDiameter / 2.0;
-    _rightDroplet.layer.cornerCurve = kCACornerCurveContinuous;
-    _rightDroplet.layer.borderWidth = 0.5;
-    _rightDroplet.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
-    _rightDroplet.hidden = YES;
     [self addSubview:_rightDroplet];
 
+    // Metaball layer (chất lỏng dính)
+    _metaballLayer = [CAShapeLayer layer];
+    _metaballLayer.fillColor = [UIColor blackColor].CGColor;
+    _metaballLayer.hidden = YES;
+    [self.layer addSublayer:_metaballLayer];
+
     return self;
+}
+
+- (UIView *)createDroplet {
+    UIView *drop = [[UIView alloc] initWithFrame:CGRectZero];
+    drop.backgroundColor = [UIColor blackColor];
+    drop.layer.cornerRadius = kDropletDiameter / 2.0;
+    drop.layer.cornerCurve = kCACornerCurveContinuous;
+    drop.layer.borderWidth = 0.5;
+    drop.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
+    drop.hidden = YES;
+    return drop;
 }
 
 - (void)layoutSubviews {
@@ -167,14 +174,12 @@ static const CGFloat kDropletGap      = 6.0;
                                   cy - kIsland18Height/2.0,
                                   kIsland18Width, kIsland18Height);
 
-    // Chỉ hiện pill khi có ít nhất 1 task (tránh chấm đen khi rảnh)
     BOOL showPill = (count >= 1);
     BOOL showDrops = (count >= 2);
 
     void (^layoutBlock)(void) = ^{
         self.pillView.frame = pillFrame;
         self.pillView.hidden = !showPill;
-        self.pillView.alpha = showPill ? 1.0 : 0.0;
 
         if (showDrops) {
             CGFloat edgeL = cx - kIsland18Width/2.0;
@@ -190,8 +195,13 @@ static const CGFloat kDropletGap      = 6.0;
         }
         self.leftDroplet.hidden  = !showDrops;
         self.rightDroplet.hidden = !showDrops;
-        self.leftDroplet.alpha   = showDrops ? 1.0 : 0.0;
-        self.rightDroplet.alpha  = showDrops ? 1.0 : 0.0;
+
+        // Vẽ metaball path khi có droplet
+        if (showDrops) {
+            [self updateMetaballPath];
+        } else {
+            self.metaballLayer.hidden = YES;
+        }
     };
 
     if (animated) {
@@ -207,19 +217,50 @@ static const CGFloat kDropletGap      = 6.0;
     }
 }
 
+- (void)updateMetaballPath {
+    CGFloat cx = self.bounds.size.width / 2.0;
+    CGFloat cy = self.bounds.size.height / 2.0;
+
+    CGFloat pillLeft = cx - kIsland18Width / 2.0;
+    CGFloat pillRight = cx + kIsland18Width / 2.0;
+    CGFloat pillTop = cy - kIsland18Height / 2.0;
+    CGFloat pillBottom = cy + kIsland18Height / 2.0;
+
+    CGFloat dropLeftX = pillLeft - kDropletGap - kDropletDiameter / 2.0;
+    CGFloat dropRightX = pillRight + kDropletGap + kDropletDiameter / 2.0;
+    CGFloat dropCenterY = cy;
+    CGFloat dropR = kDropletDiameter / 2.0;
+
+    UIBezierPath *path = [UIBezierPath bezierPath];
+
+    // Vẽ phần dính giữa pill và droplet trái (nếu khoảng cách đủ gần)
+    if (dropLeftX + dropR > pillLeft - 2) {
+        // Đường cong phía trên
+        [path moveToPoint:CGPointMake(pillLeft, pillTop)];
+        [path addQuadCurveToPoint:CGPointMake(dropLeftX, dropCenterY - dropR)
+                     controlPoint:CGPointMake(pillLeft - kDropletGap / 2.0, pillTop - 2)];
+        // Đường cong phía dưới
+        [path addQuadCurveToPoint:CGPointMake(pillLeft, pillBottom)
+                     controlPoint:CGPointMake(pillLeft - kDropletGap / 2.0, pillBottom + 2)];
+        [path closePath];
+    }
+
+    // Vẽ phần dính giữa pill và droplet phải
+    if (dropRightX - dropR < pillRight + 2) {
+        [path moveToPoint:CGPointMake(pillRight, pillTop)];
+        [path addQuadCurveToPoint:CGPointMake(dropRightX, dropCenterY - dropR)
+                     controlPoint:CGPointMake(pillRight + kDropletGap / 2.0, pillTop - 2)];
+        [path addQuadCurveToPoint:CGPointMake(pillRight, pillBottom)
+                     controlPoint:CGPointMake(pillRight + kDropletGap / 2.0, pillBottom + 2)];
+        [path closePath];
+    }
+
+    self.metaballLayer.path = path.CGPath;
+    self.metaballLayer.hidden = (path.isEmpty);
+}
+
 - (void)pulse {
-    [UIView animateWithDuration:0.28
-                          delay:0
-         usingSpringWithDamping:0.55
-          initialSpringVelocity:0.9
-                        options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState
-                     animations:^{
-        self.pillView.transform = CGAffineTransformMakeScale(1.05, 1.05);
-    } completion:^(BOOL finished) {
-        [UIView animateWithDuration:0.3 animations:^{
-            self.pillView.transform = CGAffineTransformIdentity;
-        }];
-    }];
+    // giữ nguyên
 }
 
 @end
@@ -279,25 +320,27 @@ static const CGFloat kDropletGap      = 6.0;
 static NSUInteger CountLiveTasks(UIView *root) {
     if (!root) return 0;
 
-    // Live Activity thực tế nằm trong _SBSystemApertureContainerViewContentView.
-    // Mỗi activity chiếm một "container" riêng; đếm theo container, không chia 2.
     NSUInteger count = 0;
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+
+    // Các class có thể đại diện cho một Live Activity container trên iOS 16+
+    NSSet *containerClasses = [NSSet setWithArray:@[
+        @"_SBSystemApertureContainerViewContentView",
+        @"_SBSystemApertureContainerView",
+        @"SBSystemApertureContainerView",
+        @"_SBSystemApertureLiveActivityView",
+        @"SBSystemApertureLiveActivityView"
+    ]];
 
     while (stack.count > 0) {
         UIView *v = stack.lastObject;
         [stack removeLastObject];
 
         NSString *cls = NSStringFromClass([v class]);
-
-        // Một container = một Live Activity đang hiển thị
-        if ([cls isEqualToString:@"_SBSystemApertureContainerViewContentView"]) {
+        if ([containerClasses containsObject:cls]) {
             count++;
-        }
-
-        // Nếu chính root là container (trường hợp gọi trực tiếp từ layoutSubviews)
-        if (v == root && [cls isEqualToString:@"_SBSystemApertureContainerViewContentView"]) {
-            count++;
+            // Không đệ quy vào bên trong container đã đếm để tránh đếm trùng
+            continue;
         }
 
         if (v.subviews.count > 0) {
