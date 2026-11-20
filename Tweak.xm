@@ -40,7 +40,6 @@ static BOOL fusionEnabled = NO;
 // ============================================================
 static const CGFloat kIsland18Width   = 108.67;
 static const CGFloat kIsland18Height  = 12.33;
-static const CGFloat kIsland18Radius  = 18.0;
 static const CGFloat kIsland18OffsetY = 21.0;
 static const CGFloat kDropletDiameter = 18.0;
 static const CGFloat kDropletGap      = 6.0;
