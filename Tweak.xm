@@ -127,7 +127,6 @@ static const CGFloat kDropletGap      = 6.0;
     _pillView.layer.cornerRadius = kIsland18Radius;
     _pillView.layer.masksToBounds = YES;
     _pillView.layer.cornerCurve = kCACornerCurveContinuous;
-    // Viền sáng mảnh, không dùng CAGradientLayer phủ toàn bộ
     _pillView.layer.borderWidth = 0.5;
     _pillView.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
     [self addSubview:_pillView];
@@ -155,7 +154,6 @@ static const CGFloat kDropletGap      = 6.0;
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    _rimLayer.frame = _pillView.bounds;
     [self layoutForTaskCount:_taskCount animated:NO];
 }
 
