@@ -105,7 +105,6 @@ static const CGFloat kDropletGap      = 6.0;
 @property (nonatomic, strong) UIView *pillView;
 @property (nonatomic, strong) UIView *leftDroplet;
 @property (nonatomic, strong) UIView *rightDroplet;
-@property (nonatomic, strong) CAGradientLayer *rimLayer;
 @property (nonatomic, assign) NSUInteger taskCount;
 @end
 
@@ -118,6 +117,7 @@ static const CGFloat kDropletGap      = 6.0;
     self.backgroundColor = [UIColor clearColor];
     self.userInteractionEnabled = NO;
     self.clipsToBounds = NO;
+    self.opaque = NO;
 
     _pillView = [[UIView alloc] initWithFrame:CGRectMake(
         (frame.size.width - kIsland18Width) / 2.0,
@@ -127,26 +127,17 @@ static const CGFloat kDropletGap      = 6.0;
     _pillView.layer.cornerRadius = kIsland18Radius;
     _pillView.layer.masksToBounds = YES;
     _pillView.layer.cornerCurve = kCACornerCurveContinuous;
+    // Viền sáng mảnh, không dùng CAGradientLayer phủ toàn bộ
+    _pillView.layer.borderWidth = 0.5;
+    _pillView.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
     [self addSubview:_pillView];
-
-    _rimLayer = [CAGradientLayer layer];
-    _rimLayer.frame = _pillView.bounds;
-    _rimLayer.cornerRadius = kIsland18Radius;
-    _rimLayer.cornerCurve = kCACornerCurveContinuous;
-    _rimLayer.colors = @[
-        (id)[UIColor colorWithWhite:0.18 alpha:1.0].CGColor,
-        (id)[UIColor colorWithWhite:0.02 alpha:1.0].CGColor,
-        (id)[UIColor colorWithWhite:0.15 alpha:1.0].CGColor
-    ];
-    _rimLayer.locations = @[@0.0, @0.5, @1.0];
-    _rimLayer.startPoint = CGPointMake(0, 0);
-    _rimLayer.endPoint = CGPointMake(1, 1);
-    [_pillView.layer insertSublayer:_rimLayer atIndex:0];
 
     _leftDroplet = [[UIView alloc] initWithFrame:CGRectZero];
     _leftDroplet.backgroundColor = [UIColor blackColor];
     _leftDroplet.layer.cornerRadius = kDropletDiameter / 2.0;
     _leftDroplet.layer.cornerCurve = kCACornerCurveContinuous;
+    _leftDroplet.layer.borderWidth = 0.5;
+    _leftDroplet.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
     _leftDroplet.hidden = YES;
     [self addSubview:_leftDroplet];
 
@@ -154,6 +145,8 @@ static const CGFloat kDropletGap      = 6.0;
     _rightDroplet.backgroundColor = [UIColor blackColor];
     _rightDroplet.layer.cornerRadius = kDropletDiameter / 2.0;
     _rightDroplet.layer.cornerCurve = kCACornerCurveContinuous;
+    _rightDroplet.layer.borderWidth = 0.5;
+    _rightDroplet.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
     _rightDroplet.hidden = YES;
     [self addSubview:_rightDroplet];
 
@@ -282,7 +275,9 @@ static const CGFloat kDropletGap      = 6.0;
 static NSUInteger CountLiveTasks(UIView *root) {
     if (!root) return 0;
 
-    NSUInteger n = 0;
+    // Live Activity thực tế nằm trong _SBSystemApertureContainerViewContentView.
+    // Mỗi activity chiếm một "container" riêng; đếm theo container, không chia 2.
+    NSUInteger count = 0;
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
 
     while (stack.count > 0) {
@@ -290,8 +285,15 @@ static NSUInteger CountLiveTasks(UIView *root) {
         [stack removeLastObject];
 
         NSString *cls = NSStringFromClass([v class]);
-        if ([cls containsString:@"Activity"] || [cls containsString:@"LiveSession"]) {
-            n++;
+
+        // Một container = một Live Activity đang hiển thị
+        if ([cls isEqualToString:@"_SBSystemApertureContainerViewContentView"]) {
+            count++;
+        }
+
+        // Nếu chính root là container (trường hợp gọi trực tiếp từ layoutSubviews)
+        if (v == root && [cls isEqualToString:@"_SBSystemApertureContainerViewContentView"]) {
+            count++;
         }
 
         if (v.subviews.count > 0) {
@@ -299,7 +301,7 @@ static NSUInteger CountLiveTasks(UIView *root) {
         }
     }
 
-    return n / 2;
+    return count;
 }
 
 // ============================================================
