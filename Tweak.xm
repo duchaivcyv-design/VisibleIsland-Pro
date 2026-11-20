@@ -129,6 +129,7 @@ static const CGFloat kDropletGap      = 6.0;
     _pillView.layer.cornerCurve = kCACornerCurveContinuous;
     _pillView.layer.borderWidth = 0.5;
     _pillView.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:1.0].CGColor;
+    _pillView.hidden = YES; // Mặc định ẩn, chỉ hiện khi có task
     [self addSubview:_pillView];
 
     _leftDroplet = [[UIView alloc] initWithFrame:CGRectZero];
@@ -166,10 +167,15 @@ static const CGFloat kDropletGap      = 6.0;
                                   cy - kIsland18Height/2.0,
                                   kIsland18Width, kIsland18Height);
 
+    // Chỉ hiện pill khi có ít nhất 1 task (tránh chấm đen khi rảnh)
+    BOOL showPill = (count >= 1);
     BOOL showDrops = (count >= 2);
 
     void (^layoutBlock)(void) = ^{
         self.pillView.frame = pillFrame;
+        self.pillView.hidden = !showPill;
+        self.pillView.alpha = showPill ? 1.0 : 0.0;
+
         if (showDrops) {
             CGFloat edgeL = cx - kIsland18Width/2.0;
             CGFloat edgeR = cx + kIsland18Width/2.0;
