@@ -42,6 +42,30 @@
 			<key>label</key>
 			<string>Fix Island Position</string>
 		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Renders the iPhone 18 Pro Max pill (108.67×12.33pt, radius 18) with two 18pt droplets splitting left/right when 2+ Live Activities are active. Independent of the stock island above.</string>
+			<key>label</key>
+			<string>iPhone 18 Pro Max Island</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.ethxnn88.visibleislandprefs-updated</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.ethxnn88.visibleislandprefs</string>
+			<key>key</key>
+			<string>fusionEnabled</string>
+			<key>label</key>
+			<string>Enable iPhone 18 Pro Max Island</string>
+		</dict>
+
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -112,55 +136,12 @@
 			<key>label</key>
 			<string>Save</string>
 		</dict>
+
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
-			<key>footerText</key>
-			<string>Face ID Animation needs a respring after changing.</string>
 			<key>label</key>
 			<string>Misc</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>com.ethxnn88.visibleislandprefs-updated</string>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.ethxnn88.visibleislandprefs</string>
-			<key>key</key>
-			<string>lockIndicatorEnabled</string>
-			<key>label</key>
-			<string>Lock Icon on Island</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>com.ethxnn88.visibleislandprefs-updated</string>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<false/>
-			<key>defaults</key>
-			<string>com.ethxnn88.visibleislandprefs</string>
-			<key>key</key>
-			<string>faceIDAnimationEnabled</string>
-			<key>label</key>
-			<string>Face ID Animation</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>com.ethxnn88.visibleislandprefs-updated</string>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.ethxnn88.visibleislandprefs</string>
-			<key>key</key>
-			<string>appAuthIslandEnabled</string>
-			<key>label</key>
-			<string>App Lock Face ID on Island</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -190,6 +171,7 @@
 			<key>label</key>
 			<string>Disable Island Outline</string>
 		</dict>
+
 		<dict>
 			<key>cell</key>
 			<string>PSLinkCell</string>
@@ -220,6 +202,7 @@
 			<key>label</key>
 			<string>Scale</string>
 		</dict>
+
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
