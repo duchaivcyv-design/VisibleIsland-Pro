@@ -7,27 +7,26 @@
 @implementation VISRootListController
 
 - (NSArray *)specifiers {
-	if (!_specifiers) {
-		_specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
-		if (_specifiers.count == 0) {
-			NSBundle *b = [NSBundle bundleForClass:[self class]];
-			NSMutableString *msg = [NSMutableString stringWithFormat:@"Bundle: %@\n", b.bundlePath];
-			NSArray *cands = @[@"Root.plist", @"Resources/Root.plist", @"VisibleIslandPrefs.bundle/Root.plist"];
-			for (NSString *c in cands) {
-				NSString *full = [b.bundlePath stringByAppendingPathComponent:c];
-				[msg appendFormat:@"%@ : %@\n", c, [[NSFileManager defaultManager] fileExistsAtPath:full] ? @"CÓ" : @"KHÔNG"]; 
-			}
-			[msg appendFormat:@"Thư mục bundle: %@", [[NSFileManager defaultManager] contentsOfDirectoryAtPath:b.bundlePath error:nil]];
-			dispatch_async(dispatch_get_main_queue(), ^{
-				UIAlertController *a = [UIAlertController alertControllerWithTitle:@"[VIS] Không nạp được Root" message:msg preferredStyle:UIAlertControllerStyleAlert];
-				[a addAction:[UIAlertAction actionWithTitle:[VISL10n tr:@"OK"] style:UIAlertActionStyleDefault handler:nil]];
-				[self presentViewController:a animated:YES completion:nil];
-			});
-		}
-	}
-		[VISL10n localizeSpecifiers:_specifiers forController:self title:@"VisibleIsland"];
-
-	return _specifiers;
+    if (!_specifiers) {
+        _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
+        if (_specifiers.count == 0) {
+            NSBundle *b = [NSBundle bundleForClass:[self class]];
+            NSMutableString *msg = [NSMutableString stringWithFormat:@"Bundle: %@\n", b.bundlePath];
+            NSArray *cands = @[@"Root.plist", @"Resources/Root.plist", @"VisibleIslandPrefs.bundle/Root.plist"];
+            for (NSString *c in cands) {
+                NSString *full = [b.bundlePath stringByAppendingPathComponent:c];
+                [msg appendFormat:@"%@ : %@\n", c, [[NSFileManager defaultManager] fileExistsAtPath:full] ? @"CÓ" : @"KHÔNG"];
+            }
+            [msg appendFormat:@"Thư mục bundle: %@", [[NSFileManager defaultManager] contentsOfDirectoryAtPath:b.bundlePath error:nil]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UIAlertController *a = [UIAlertController alertControllerWithTitle:@"[VIS] Không nạp được Root" message:msg preferredStyle:UIAlertControllerStyleAlert];
+                [a addAction:[UIAlertAction actionWithTitle:[VISL10n tr:@"OK"] style:UIAlertActionStyleDefault handler:nil]];
+                [self presentViewController:a animated:YES completion:nil];
+            });
+        }
+    }
+    [VISL10n localizeSpecifiers:_specifiers forController:self title:@"VisibleIsland"];
+    return _specifiers;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -66,7 +65,7 @@
 }
 
 - (void)respring {
-		CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.ethxnn88.visibleislandprefs-respring"), NULL, NULL, YES);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.ethxnn88.visibleislandprefs-respring"), NULL, NULL, YES);
 }
 
 + (NSString *)deviceModel {
@@ -112,9 +111,7 @@
 
     [nestedDictionary setValue:@(2556) forKey:@"ArtworkDeviceSubType"];
 
-    if (![plistDictionary writeToFile:plistPath atomically:YES]) {
-
-    }
+    [plistDictionary writeToFile:plistPath atomically:YES];
 }
 
 + (void)set0000 {
@@ -140,9 +137,7 @@
 
     [nestedDictionary setValue:@(0000) forKey:@"ArtworkDeviceSubType"];
 
-    if (![plistDictionary writeToFile:plistPath atomically:YES]) {
-
-    }
+    [plistDictionary writeToFile:plistPath atomically:YES];
 }
 
 + (void)fixUnsupported {
@@ -195,41 +190,49 @@
         footerLabel.font = [UIFont systemFontOfSize:14.0];
         footerLabel.text = @"VisibleIsland v2.0 | prefs 14.11-c | © ethxnn88";
         return footerLabel;
-    } else {
-        return nil;
     }
+    return nil;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
-    if (section == [tableView numberOfSections] - 1) {
-        return 50;
-    } else if (section == 1 || section == 3) {
-        return 45;
-    } else {
-        return 0;
-    }
+    // Last section: version footer
+    if (section == [tableView numberOfSections] - 1) return 50;
+    // Section 1: "If your device isn't supported..." footer
+    if (section == 1) return 45;
+    // Section 2: "Renders the iPhone 18 Pro Max pill..." footer (long, wraps ~4 lines)
+    if (section == 2) return 90;
+    return 0;
 }
 
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     [super setPreferenceValue:value specifier:specifier];
 
-    if ([[specifier propertyForKey:@"key"] isEqualToString:@"islandEnabled"]) {
+    NSString *key = [specifier propertyForKey:@"key"];
+
+    if ([key isEqualToString:@"islandEnabled"]) {
         BOOL switchValue = [value boolValue];
         if (switchValue) {
-			[VISRootListController set2556];
+            [VISRootListController set2556];
         } else {
-			[VISRootListController set0000];
+            [VISRootListController set0000];
         }
-    } else if ([[specifier propertyForKey:@"key"] isEqualToString:@"fixEnabled"]) {
+    } else if ([key isEqualToString:@"fixEnabled"]) {
         BOOL switchValue = [value boolValue];
         if (switchValue) {
             NSString *deviceModel = [VISRootListController deviceModel];
             NSArray *supportedModels = @[@"iPhone10,3", @"iPhone10,6", @"iPhone11,2", @"iPhone12,3", @"iPhone11,6", @"iPhone12,5", @"iPhone11,8", @"iPhone12,1", @"iPhone14,2", @"iPhone14,5", @"iPhone14,7", @"iPhone14,3", @"iPhone14,4"];
-            if ([supportedModels containsObject:deviceModel]) {
-            } else {
+            if (![supportedModels containsObject:deviceModel]) {
                 [VISRootListController fixUnsupported];
             }
         }
+    } else if ([key isEqualToString:@"fusionEnabled"]) {
+        // Fusion island attaches on the tweak's next layoutSubviews pass,
+        // but detach requires SpringBoard to unload the view — no live detach
+        // path exists in the tweak, so respring on any toggle for consistency.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self respringAsk:nil];
+        });
     }
 }
+
 @end
