@@ -54,26 +54,22 @@ jobs:
         git clone --depth 1 https://github.com/jmpews/Dobby.git /tmp/Dobby
         cd /tmp/Dobby
 
-        # SDK mới nhất
+        # SDK và toolchain
         export SDK_PATH=$(ls -d $THEOS/sdks/iPhoneOS*.sdk | sort -V | tail -n 1)
+        export TOOLCHAIN_FILE="$PWD/cmake/ios.toolchain.cmake"
+
         echo "Using SDK: $SDK_PATH"
-        
-        # Kiểm tra ld64.lld có tồn tại không
-        which ld64.lld || (echo "ld64.lld not found! Installing lld..." && sudo apt-get install -y lld)
+        echo "Using Toolchain: $TOOLCHAIN_FILE"
 
         # --- Build arm64 slice ---
         mkdir build_arm64 && cd build_arm64
         cmake .. \
-          -DCMAKE_SYSTEM_NAME=Darwin \
-          -DCMAKE_OSX_ARCHITECTURES=arm64 \
+          -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+          -DPLATFORM=OS64 \
+          -DARCHS="arm64" \
+          -DCMAKE_SYSTEM_PROCESSOR=arm64 \
           -DCMAKE_OSX_SYSROOT="$SDK_PATH" \
-          -DCMAKE_C_COMPILER=$(which clang) \
-          -DCMAKE_CXX_COMPILER=$(which clang++) \
-          -DCMAKE_C_FLAGS="-target arm64-apple-ios14.0" \
-          -DCMAKE_CXX_FLAGS="-target arm64-apple-ios14.0" \
-          -DCMAKE_LINKER=$(which ld64.lld) \
-          -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
-          -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
           -DCMAKE_BUILD_TYPE=Release \
           -DDOBBY_GENERATE_SHARED=OFF
         make -j$(nproc)
@@ -82,26 +78,21 @@ jobs:
         # --- Build arm64e slice ---
         mkdir build_arm64e && cd build_arm64e
         cmake .. \
-          -DCMAKE_SYSTEM_NAME=Darwin \
-          -DCMAKE_OSX_ARCHITECTURES=arm64e \
+          -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+          -DPLATFORM=OS64 \
+          -DARCHS="arm64e" \
+          -DCMAKE_SYSTEM_PROCESSOR=arm64 \
           -DCMAKE_OSX_SYSROOT="$SDK_PATH" \
-          -DCMAKE_C_COMPILER=$(which clang) \
-          -DCMAKE_CXX_COMPILER=$(which clang++) \
-          -DCMAKE_C_FLAGS="-target arm64e-apple-ios14.0" \
-          -DCMAKE_CXX_FLAGS="-target arm64e-apple-ios14.0" \
-          -DCMAKE_LINKER=$(which ld64.lld) \
-          -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
-          -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
           -DCMAKE_BUILD_TYPE=Release \
           -DDOBBY_GENERATE_SHARED=OFF
         make -j$(nproc)
         cd ..
 
-        # --- Tìm file libdobby.a ---
+        # --- Ghép universal binary ---
         ARM64_LIB=$(find build_arm64 -name "libdobby.a" | head -n 1)
         ARM64E_LIB=$(find build_arm64e -name "libdobby.a" | head -n 1)
 
-        # --- Ghép 2 slice thành universal binary ---
         mkdir -p "$GITHUB_WORKSPACE/vendor/dobby"
         lipo -create \
           "$ARM64_LIB" \
