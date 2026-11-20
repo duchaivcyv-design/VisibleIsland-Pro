@@ -1,4 +1,4 @@
-name: Build and Package Theos Tweak
+name: Build and Package
 
 on:
   push:
