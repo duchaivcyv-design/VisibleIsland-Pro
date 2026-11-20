@@ -1,9 +1,9 @@
 Package: com.ethxnn88.visibleisland
-Name: Visible (Is)land 26
-Version: 3.0
+Name: Visible 18 pro max
+Version: 3.0.0
 Architecture: iphoneos-arm64
-Description: Bao gồm các tính năng gốc của Visiable Island. Thêm hiệu ứng mở khoá ứng dụng Face ID trên Dynamic Island, Thêm hoạt ảnh Face ID ở màn hình khoá
-Maintainer: Sleeper2009 ethxnn88, TaoJB, 
-Author: Sleeper2009 ethxnn88, TaoJB
+Description: Hiệu ứng dynamic iphone 18 pro max 2 giọt nước 2 bên
+Maintainer: TaoJB, ethxnn88
+Author: TaoJB, ethxnn88
 Section: Tweaks
 Depends: mobilesubstrate (>= 0.9.5000), preferenceloader, firmware (>= 16.0)
