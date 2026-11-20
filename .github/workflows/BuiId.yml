@@ -23,9 +23,18 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          ldid xz-utils dpkg fakeroot make cmake zstd git \
+          xz-utils dpkg fakeroot make cmake zstd git curl \
           llvm clang lld libplist-dev libssl-dev libpng-dev
-        # Symlink llvm-lipo -> lipo (Ubuntu không có Apple lipo)
+
+        # Tải ldid binary từ ProcursusTeam releases (không có trong apt)
+        sudo mkdir -p /usr/local/bin
+        sudo curl -L \
+          https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus8/ldid_linux_x86_64 \
+          -o /usr/local/bin/ldid
+        sudo chmod +x /usr/local/bin/ldid
+        ldid -v
+
+        # Symlink llvm-lipo -> lipo
         LIPO_BIN=$(find /usr/bin -name "llvm-lipo*" | head -n 1)
         sudo ln -sf "$LIPO_BIN" /usr/bin/lipo
 
