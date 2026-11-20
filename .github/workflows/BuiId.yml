@@ -57,8 +57,9 @@ jobs:
         # SDK mới nhất
         export SDK_PATH=$(ls -d $THEOS/sdks/iPhoneOS*.sdk | sort -V | tail -n 1)
         echo "Using SDK: $SDK_PATH"
-        export CC=$(which clang)
-        export CXX=$(which clang++)
+        
+        # Kiểm tra ld64.lld có tồn tại không
+        which ld64.lld || (echo "ld64.lld not found! Installing lld..." && sudo apt-get install -y lld)
 
         # --- Build arm64 slice ---
         mkdir build_arm64 && cd build_arm64
@@ -66,10 +67,13 @@ jobs:
           -DCMAKE_SYSTEM_NAME=Darwin \
           -DCMAKE_OSX_ARCHITECTURES=arm64 \
           -DCMAKE_OSX_SYSROOT="$SDK_PATH" \
-          -DCMAKE_C_COMPILER="$CC" \
-          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DCMAKE_C_COMPILER=$(which clang) \
+          -DCMAKE_CXX_COMPILER=$(which clang++) \
           -DCMAKE_C_FLAGS="-target arm64-apple-ios14.0" \
           -DCMAKE_CXX_FLAGS="-target arm64-apple-ios14.0" \
+          -DCMAKE_LINKER=$(which ld64.lld) \
+          -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
           -DCMAKE_BUILD_TYPE=Release \
           -DDOBBY_GENERATE_SHARED=OFF
         make -j$(nproc)
@@ -81,10 +85,13 @@ jobs:
           -DCMAKE_SYSTEM_NAME=Darwin \
           -DCMAKE_OSX_ARCHITECTURES=arm64e \
           -DCMAKE_OSX_SYSROOT="$SDK_PATH" \
-          -DCMAKE_C_COMPILER="$CC" \
-          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DCMAKE_C_COMPILER=$(which clang) \
+          -DCMAKE_CXX_COMPILER=$(which clang++) \
           -DCMAKE_C_FLAGS="-target arm64e-apple-ios14.0" \
           -DCMAKE_CXX_FLAGS="-target arm64e-apple-ios14.0" \
+          -DCMAKE_LINKER=$(which ld64.lld) \
+          -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
           -DCMAKE_BUILD_TYPE=Release \
           -DDOBBY_GENERATE_SHARED=OFF
         make -j$(nproc)
